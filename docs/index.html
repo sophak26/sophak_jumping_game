@@ -238,7 +238,7 @@ function init(){
   function spawnObstacle(){ if(Math.random()<GAP_CHANCE) spawnGapPair(); else spawnGroundBlock(); }
 
   function spawnTreat(){
-    const y=rand(150, FLOOR-20);
+    const y=rand(50, FLOOR-20);
     objects.push({ type:'treat', x:W+40, y, w:18, h:18, color:'#ffd166' });
   }
   function spawnDoor(){
