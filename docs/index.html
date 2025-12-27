@@ -202,7 +202,7 @@ function init(){
     leaves=[]; for(let i=0;i<Math.min(10,MAX_LEAVES);i++){ leaves.push({x:rand(0,W),y:rand(0,H),vy:rand(0.6,1.4),amp:rand(8,18),phase:rand(0,Math.PI*2),size:rand(6,12),hue:Math.floor(rand(20,40))*10});}
     const now=performance.now();
     nextBlockAt=now+rand(900,1500);
-    nextTreatAt=now+rand(1200,2200);
+    nextTreatAt=now+rand(400,600);
     nextDoorAt =now+rand(8000,12000);
   }
 
