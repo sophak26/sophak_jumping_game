@@ -8,7 +8,8 @@
   html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Helvetica,Arial,sans-serif}
   #wrap{position:relative;min-height:100vh;display:flex;flex-direction:column}
   #gamewrap{flex:1;display:flex;align-items:center;justify-content:center}
-  canvas{display:block;width:100vw;height:100vh;touch-action:manipulation}
+  /* center the canvas, keep aspect ratio via inline sizing from JS */
+  canvas{display:block;touch-action:manipulation;background:transparent}
   .overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(5,15,25,.65);z-index:10}
   .box{background:var(--panel);border:1px solid #284963;border-radius:14px;max-width:480px;width:90%;padding:18px 16px;box-shadow:0 12px 40px rgba(0,0,0,.4)}
   .box h2{margin:0 0 8px;font-size:20px}
@@ -62,9 +63,9 @@
     <p>How to play:</p>
     <ul class="inst">
       <li>Tap/click or press Space/↑ to jump.</li>
-      <li>While in the air, tap/click again to double jump.</li>
+      <li>Tap/click again while in the air to double jump.</li>
       <li>Collect treats for bonus points.</li>
-      <li>Avoid red blocks.</li>
+      <li>Avoid red blocks; some are stacked with a vertical gap.</li>
       <li>Bump into a door to open that page.</li>
     </ul>
     <div class="row" style="justify-content:flex-end">
@@ -90,7 +91,7 @@
 window.addEventListener('DOMContentLoaded', init);
 
 function init(){
-  /* ===== Config (replace URLs with WithJoy links later) ===== */
+  /* ===== Config (replace URLs with your WithJoy links later) ===== */
   const DOORS = [
     { label: "Home",           url: "#", color: "#ffd166" },
     { label: "Schedule",       url: "#", color: "#80ed99" },
@@ -99,7 +100,7 @@ function init(){
   ];
 
   const PLAYER_W = 56, PLAYER_H = 48;
-  const FLOOR = 380;
+  let FLOOR = 380;                    // recomputed on resize to fit canvas
   const GRAVITY = 0.7;
   const JUMP_VELOCITY = -13.5;
   const DOUBLE_JUMP_VELOCITY = -11;
@@ -111,8 +112,11 @@ function init(){
   const SPAWN_BLOCK_EVERY = [900, 1500];
   const SPAWN_TREAT_EVERY = [1200, 2200];
   const SPAWN_DOOR_EVERY  = [8000, 12000];
+  const GAP_CHANCE = 0.35;            // 35% of obstacles are vertical-gap pairs
+  const GAP_SIZE = [90, 120];         // vertical gap opening in px
 
-  /* ===== Canvas + helpers ===== */
+  /* ===== Canvas + helpers (16:9 letterbox) ===== */
+  const BASE_W = 800, BASE_H = 450, RATIO = BASE_W/BASE_H;
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
   const jumpBtn = document.getElementById("jumpBtn");
@@ -128,7 +132,24 @@ function init(){
   const startBtn = document.getElementById("startBtn");
   const nameInput = document.getElementById("nameInput");
 
-  let W = canvas.width, H = canvas.height;
+  let W = BASE_W, H = BASE_H;
+  function fitCanvas(){
+    const vw = Math.max(320, window.innerWidth);
+    const vh = Math.max(320, window.innerHeight);
+    let cssW = vw, cssH = vw / RATIO;
+    if (cssH > vh){ cssH = vh; cssW = vh * RATIO; }
+    canvas.style.width = cssW + "px";
+    canvas.style.height = cssH + "px";
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width  = Math.floor(cssW * dpr);
+    canvas.height = Math.floor(cssH * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    W = cssW; H = cssH;
+    FLOOR = Math.round(H * 0.84);     // ground at ~84% of canvas height
+  }
+  fitCanvas();
+  addEventListener("resize", fitCanvas);
+
   function rand(min,max){ return Math.random()*(max-min)+min; }
   function chance(p){ return Math.random()<p; }
   function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
@@ -165,11 +186,10 @@ function init(){
   /* ===== Game state ===== */
   let started = false;   // only true after Start
   let running = false;   // true during an active run
-
   let player, score, nextBlockAt, nextTreatAt, nextDoorAt, doorIndex, canDouble;
-  let objects = [];   // ensure defined before Start
-  let leaves  = [];   // ambient leaves render before Start
-  let lastTs = 0;
+  let objects = [];      // obstacles/doors/treats
+  let leaves  = [];      // ambient
+  let lastTs=0;
 
   function resetGame(){
     score = 0;
@@ -178,7 +198,11 @@ function init(){
     canDouble = false;
     player = { x:120, y:FLOOR-PLAYER_H, w:PLAYER_W, h:PLAYER_H, vy:0, onGround:true, facing:1 };
     objects = [];
+    // keep some leaves already on screen so background isn't empty
     leaves = [];
+    for (let i=0;i<Math.min(10, MAX_LEAVES); i++){
+      leaves.push({ x: rand(0,W), y: rand(0,H), vy: rand(0.6,1.4), amp: rand(8,18), phase: rand(0,Math.PI*2), size: rand(6,12), hue: Math.floor(rand(20,40))*10 });
+    }
     const now = performance.now();
     nextBlockAt = now + rand(...SPAWN_BLOCK_EVERY);
     nextTreatAt = now + rand(...SPAWN_TREAT_EVERY);
@@ -199,11 +223,32 @@ function init(){
     }
   }
 
+  /* ===== Spawners ===== */
   function spawnBlock(){
     const h = rand(38, 94);
     const w = rand(30, 48);
-    const yTop = FLOOR - h;
+    const yTop = FLOOR - h;                           // sits on ground
     objects.push({ type:"block", x: W + 40, y: yTop, w, h, color:"#d9534f" });
+  }
+  function spawnGapPair(){
+    const gap = rand(...GAP_SIZE);
+    const maxBottom = Math.max(40, FLOOR - gap - 120); // keep some headroom
+    const bottomH = rand(40, maxBottom);
+    const topH = Math.max(30, FLOOR - gap - bottomH);
+    const w = rand(32, 44);
+    // bottom block (from ground up)
+    objects.push({ type:"block", x: W + 40, y: FLOOR - bottomH, w, h: bottomH, color:"#d9534f" });
+    // top block (from top down)
+    objects.push({ type:"block", x: W + 40, y: 0, w, h: topH, color:"#d9534f" });
+    // optional treat in the gap sometimes
+    if (chance(0.4)){
+      const gy = topH + (gap/2) - 9;
+      objects.push({ type:"treat", x: W + 40 + w + 30, y: gy, w: 18, h: 18, color:"#ffd166" });
+    }
+  }
+  function spawnObstacle(){
+    if (chance(GAP_CHANCE)) spawnGapPair();
+    else spawnBlock();
   }
   function spawnTreat(){
     const y = rand(150, FLOOR - 80);
@@ -213,24 +258,38 @@ function init(){
     const d = DOORS[doorIndex % DOORS.length]; doorIndex++;
     const doorW = 34, doorH = 58;
     const platformY = rand(FLOOR - 110, FLOOR - 60);
-    objects.push({ type:"door", label:d.label, url:d.url, color:d.color, x: W + 60, y: platformY - doorH, w: doorW, h: doorH });
-    objects.push({ type:"platform", x: W + 60 - 40, y: platformY, w: 120, h: 14, color: ICE_COLOR });
+    // door itself
+    objects.push({ type:"door", label:d.label, url:d.url, color:d.color,
+                   x: W + 60, y: platformY - doorH, w: doorW, h: doorH });
+    // narrow pedestal beneath door (so you can pass under/over more easily)
+    const pedW = 56, pedH = 12;
+    objects.push({ type:"platform", x: W + 60 - pedW/2, y: platformY, w: pedW, h: pedH, color: ICE_COLOR });
   }
   function spawnLeaf(){
+    if (!leaves) leaves = [];
     if (leaves.length >= MAX_LEAVES) return;
     leaves.push({ x: rand(0,W), y: -20, vy: rand(0.6,1.4), amp: rand(8,18), phase: rand(0,Math.PI*2), size: rand(6,12), hue: Math.floor(rand(20,40))*10 });
   }
-  function aabb(a,b){ return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
 
+  function aabb(a,b){ return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+  // Require player's center to be inside the inner 60% of the door horizontally, plus normal overlap
+  function doorEntered(p, d){
+    const cx = p.x + p.w * 0.5;
+    const innerL = d.x + d.w * 0.2, innerR = d.x + d.w * 0.8;
+    const vertical = p.y + p.h > d.y + 6 && p.y < d.y + d.h - 6;
+    return cx > innerL && cx < innerR && vertical && aabb(p,d);
+  }
+
+  /* ===== Update / Draw ===== */
   function update(dt){
-    // ambient leaves even if not started
+    // Ambient leaves even if not started
     if (chance(0.2)) spawnLeaf();
     for (const l of leaves){ l.phase += 0.03; l.x += Math.sin(l.phase)*0.8; l.y += l.vy; }
     leaves = leaves.filter(l => l.y < H + 30);
 
     if (!running || !started) return;
 
-    // score & physics
+    // Score & physics
     score += SCROLL_SPEED * dt * 0.1;
     player.vy += GRAVITY;
     player.y  += player.vy;
@@ -238,45 +297,44 @@ function init(){
       player.y = FLOOR - PLAYER_H; player.vy = 0; player.onGround = true;
     }
 
-    // spawns
+    // Spawns
     const now = performance.now();
-    if (now >= nextBlockAt){ spawnBlock(); nextBlockAt = now + rand(...SPAWN_BLOCK_EVERY); }
-    if (now >= nextTreatAt){ spawnTreat(); nextTreatAt = now + rand(...SPAWN_TREAT_EVERY); }
-    if (now >= nextDoorAt){  spawnDoor();  nextDoorAt  = now + rand(...SPAWN_DOOR_EVERY); }
+    if (now >= nextBlockAt){ spawnObstacle(); nextBlockAt = now + rand(...SPAWN_BLOCK_EVERY); }
+    if (now >= nextTreatAt){ spawnTreat();   nextTreatAt = now + rand(...SPAWN_TREAT_EVERY); }
+    if (now >= nextDoorAt){  spawnDoor();    nextDoorAt  = now + rand(...SPAWN_DOOR_EVERY); }
 
-    // move & cleanup
+    // Move & cleanup
     for (const o of objects){ o.x -= SCROLL_SPEED; }
-    objects = objects.filter(o => o.x + o.w > -40);
+    objects = objects.filter(o => o.x + o.w > -60);
 
-    // collisions
+    // Collisions
     for (let i=0;i<objects.length;i++){
       const o = objects[i];
-      if ((o.type === "platform" || o.type === "door" || o.type === "block") && aabb(player,o)){
-        if (o.type === "block"){ sfx('hit'); endRun("You hit a block!"); return; }
-        if (o.type === "door"){ sfx('door'); endRun(`You reached ${o.label}`, o); return; }
-      } else if (o.type === "treat" && aabb(player,o)){
+      if (o.type === "block" && aabb(player,o)){ sfx('hit'); endRun("You hit a block!"); return; }
+      if (o.type === "door"  && doorEntered(player,o)){ sfx('door'); endRun(`You reached ${o.label}`, o); return; }
+      if (o.type === "treat" && aabb(player,o)){
         score += TREAT_POINTS; sfx('treat'); objects.splice(i,1); i--;
       }
     }
   }
 
   function draw(){
-    // winter gradient
+    // Winter gradient
     const g = ctx.createLinearGradient(0,0,0,H);
     g.addColorStop(0,"#0a2239"); g.addColorStop(1,"#163a59");
     ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
 
-    // ground
+    // Ground strip
     ctx.fillStyle = GROUND_COLOR; ctx.fillRect(0, FLOOR+8, W, H-(FLOOR+8));
-    ctx.fillStyle = ICE_COLOR; ctx.fillRect(0, FLOOR-10, W, 6);
+    ctx.fillStyle = ICE_COLOR;    ctx.fillRect(0, FLOOR-10, W, 6);
 
-    // leaves
+    // Leaves
     for (const l of leaves){
       ctx.fillStyle = `hsl(${l.hue} 70% 60%)`;
       ctx.beginPath(); ctx.ellipse(l.x,l.y,l.size*0.7,l.size*0.4,Math.sin(l.phase)*0.5,0,Math.PI*2); ctx.fill();
     }
 
-    // objects
+    // Objects
     for (const o of objects){
       if (o.type === "block" || o.type === "platform"){
         ctx.fillStyle = o.color; roundRect(ctx, o.x, o.y, o.w, o.h, 4, true, false);
@@ -291,7 +349,7 @@ function init(){
       }
     }
 
-    // player (only when started)
+    // Player (only when started)
     if (started){
       if (huskyImg.complete && huskyImg.naturalWidth){
         ctx.save(); ctx.translate(player.x + player.w/2, player.y + player.h/2); ctx.scale(player.facing,1);
@@ -301,7 +359,7 @@ function init(){
       }
     }
 
-    // HUD during run
+    // HUD
     if (running && started){
       ctx.fillStyle = "#cfe9ff"; ctx.font = "16px system-ui"; ctx.textAlign="left";
       ctx.fillText("Score: " + Math.floor(score), 14, 22);
@@ -370,8 +428,6 @@ function init(){
 
   againBtn.addEventListener("click", ()=>{
     showOverlay(overOverlay,false);
-    // immediate restart; to show instructions again, swap to:
-    // showOverlay(startOverlay,true); started=false; running=false;
     resetGame();
   });
 
@@ -387,21 +443,21 @@ function init(){
     showOverlay(startOverlay, true);
   });
   nameInput.addEventListener("keydown", (e)=>{
-    if (e.key === "Enter") saveNameBtn.click();
+    if (e.key === "Enter") document.getElementById("saveNameBtn").click();
   });
 
   startBtn.addEventListener("click", ()=>{
-    initAudio();     // unlock audio
+    initAudio();
     started = true;
     showOverlay(startOverlay, false);
-    resetGame();     // begin first run
+    resetGame();
   });
 
   // Show overlays; do not start the game yet
   if (!localStorage.getItem("hj_name")) showOverlay(nameOverlay, true);
   else showOverlay(startOverlay, true);
 
-  // Kick off rendering (game logic will idle until Start)
+  // Kick off rendering
   requestAnimationFrame(frame);
 } // end init
 </script>
