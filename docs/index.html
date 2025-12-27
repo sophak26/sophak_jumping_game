@@ -166,8 +166,10 @@ function init(){
   let started = false;   // only true after Start
   let running = false;   // true during an active run
 
-  let player, objects, leaves, score, nextBlockAt, nextTreatAt, nextDoorAt, doorIndex, canDouble;
-  let lastTs=0;
+  let player, score, nextBlockAt, nextTreatAt, nextDoorAt, doorIndex, canDouble;
+  let objects = [];   // ensure defined before Start
+  let leaves  = [];   // ambient leaves render before Start
+  let lastTs = 0;
 
   function resetGame(){
     score = 0;
