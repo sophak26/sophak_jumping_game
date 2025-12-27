@@ -9,7 +9,7 @@
   #gamewrap{flex:1;display:flex;align-items:center;justify-content:center}
   canvas{display:block;width:100vw;height:100vh;touch-action:manipulation}
   .overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(5,15,25,.65);z-index:10}
-  .box{background:var(--panel);border:1px solid #284963;border-radius:14px;max-width:420px;width:90%;padding:18px 16px;box-shadow:0 12px 40px rgba(0,0,0,.4)}
+  .box{background:var(--panel);border:1px solid #284963;border-radius:14px;max-width:480px;width:90%;padding:18px 16px;box-shadow:0 12px 40px rgba(0,0,0,.4)}
   .box h2{margin:0 0 8px;font-size:20px}
   .box p{margin:8px 0 0;line-height:1.4}
   .row{display:flex;gap:8px;margin-top:12px}
@@ -22,6 +22,8 @@
   #jumpBtn{position:fixed;right:14px;bottom:14px;z-index:5;padding:14px 18px;border-radius:14px;background:#2b5a84;color:var(--fg);border:1px solid #3c729f}
   footer{padding:10px 12px;opacity:.85;font-size:12px}
   footer a{color:#9fd2ff}
+  ul.inst{margin:8px 0 12px 20px;padding:0}
+  ul.inst li{margin:6px 0}
 </style>
 
 <div id="wrap">
@@ -40,7 +42,7 @@
   </footer>
 </div>
 
-<!-- Name prompt (local only for now; we’ll add global later) -->
+<!-- 1) Name overlay (blocks game until name saved) -->
 <div id="nameOverlay" class="overlay">
   <div class="box">
     <h2>Welcome!</h2>
@@ -52,7 +54,25 @@
   </div>
 </div>
 
-<!-- Game Over + “leaderboard” (local best for now) -->
+<!-- 2) Start/Instructions overlay (blocks game until Start) -->
+<div id="startOverlay" class="overlay">
+  <div class="box">
+    <h2>Husky Jump</h2>
+    <p>How to play:</p>
+    <ul class="inst">
+      <li>Tap/click or press Space/↑ to jump.</li>
+      <li>While in the air, tap/click again to double jump.</li>
+      <li>Collect treats for bonus points.</li>
+      <li>Avoid red blocks.</li>
+      <li>Bump into a door to open that page.</li>
+    </ul>
+    <div class="row" style="justify-content:flex-end">
+      <button id="startBtn">Start</button>
+    </div>
+  </div>
+</div>
+
+<!-- 3) Game Over + local best (we can swap to global later) -->
 <div id="overOverlay" class="overlay">
   <div class="box">
     <h2 id="overTitle">Game Over</h2>
@@ -91,13 +111,12 @@ const SPAWN_BLOCK_EVERY = [1100, 2000];   // ms
 const SPAWN_TREAT_EVERY = [500, 1000];  // ms
 const SPAWN_DOOR_EVERY  = [5000, 10000]; // ms
 
-/* =========================
-   Canvas + helpers
-   ========================= */
+/* ========== Canvas + helpers ========== */
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const jumpBtn = document.getElementById("jumpBtn");
 const nameOverlay = document.getElementById("nameOverlay");
+const startOverlay = document.getElementById("startOverlay");
 const overOverlay = document.getElementById("overOverlay");
 const finalScoreEl = document.getElementById("finalScore");
 const topList = document.getElementById("topList");
@@ -105,22 +124,19 @@ const overTitle = document.getElementById("overTitle");
 const doorLink = document.getElementById("doorLink");
 const againBtn = document.getElementById("againBtn");
 const saveNameBtn = document.getElementById("saveNameBtn");
+const startBtn = document.getElementById("startBtn");
 
 let W = canvas.width, H = canvas.height;
 function rand(min,max){ return Math.random()*(max-min)+min; }
 function chance(p){ return Math.random()<p; }
 function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
 
-/* =========================
-   Assets
-   ========================= */
+/* ========== Assets ========== */
 const huskyImg = new Image();
-huskyImg.src = "assets/husky.png"; // must exist
+huskyImg.src = "assets/husky.png";
 huskyImg.crossOrigin = "anonymous";
 
-/* =========================
-   Simple sounds (WebAudio beeps)
-   ========================= */
+/* ========== Simple sounds ========== */
 const audio = { ctx:null, enabled:true };
 function initAudio(){ if(audio.ctx) return; const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return; audio.ctx=new AC(); }
 function tone(f, dur, type='sine', vol=0.08){
@@ -141,23 +157,22 @@ function sfx(name){
     case 'door':  tone(520,0.14,'square',0.08); tone(650,0.16,'square',0.06); break;
   }
 }
-addEventListener("pointerdown", ()=>{ initAudio(); }, { once:true });
-addEventListener("keydown", ()=>{ initAudio(); }, { once:true });
 
-/* =========================
-   Game state
-   ========================= */
-let player, objects, leaves, score, running, nextBlockAt, nextTreatAt, nextDoorAt, doorIndex, canDouble;
-let lastTime = 0;
+/* ========== Game state ========== */
+let started = false;   // NEW: true only after Start pressed
+let running = false;   // true only while a run is active (between Start and Game Over)
+
+let player, objects, leaves, score, nextBlockAt, nextTreatAt, nextDoorAt, doorIndex, canDouble;
+let lastTs=0;
 
 function resetGame(){
   score = 0;
-  running = true;
+  running = true;              // start the run
   doorIndex = 0;
   canDouble = false;
   player = { x:120, y:FLOOR-PLAYER_H, w:PLAYER_W, h:PLAYER_H, vy:0, onGround:true, facing:1 };
-  objects = [];   // {type:'block'|'treat'|'door'|'platform', x,y,w,h,color,label,url}
-  leaves = [];    // decorative
+  objects = [];
+  leaves = [];
   const now = performance.now();
   nextBlockAt = now + rand(...SPAWN_BLOCK_EVERY);
   nextTreatAt = now + rand(...SPAWN_TREAT_EVERY);
@@ -165,7 +180,7 @@ function resetGame(){
 }
 
 function jump(){
-  if (!running) return;
+  if (!running || !started) return;
   if (player.onGround){
     player.vy = JUMP_VELOCITY;
     player.onGround = false;
@@ -181,7 +196,7 @@ function jump(){
 function spawnBlock(){
   const h = rand(38, 94);
   const w = rand(30, 48);
-  const yTop = FLOOR - h;                       // sits on the ground
+  const yTop = FLOOR - h;
   objects.push({ type:"block", x: W + 40, y: yTop, w, h, color:"#d9534f" });
 }
 function spawnTreat(){
@@ -191,10 +206,8 @@ function spawnTreat(){
 function spawnDoor(){
   const d = DOORS[doorIndex % DOORS.length]; doorIndex++;
   const doorW = 34, doorH = 58;
-  const platformY = rand(FLOOR - 110, FLOOR - 60); // reachable with one jump; sometimes double
-  // door and small platform under it
-  objects.push({ type:"door", label:d.label, url:d.url, color:d.color,
-                 x: W + 60, y: platformY - doorH, w: doorW, h: doorH });
+  const platformY = rand(FLOOR - 110, FLOOR - 60);
+  objects.push({ type:"door", label:d.label, url:d.url, color:d.color, x: W + 60, y: platformY - doorH, w: doorW, h: doorH });
   objects.push({ type:"platform", x: W + 60 - 40, y: platformY, w: 120, h: 14, color: ICE_COLOR });
 }
 function spawnLeaf(){
@@ -204,52 +217,41 @@ function spawnLeaf(){
 function aabb(a,b){ return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
 
 function update(dt){
-  // distance-based score
-  score += SCROLL_SPEED * dt * 0.1;
+  // background animations (leaves) can run even if not started
+  if (chance(0.2)) spawnLeaf();
+  for (const l of leaves){ l.phase += 0.03; l.x += Math.sin(l.phase)*0.8; l.y += l.vy; }
+  leaves = leaves.filter(l => l.y < H + 30);
 
-  // physics
+  if (!running || !started) return;
+
+  // score & physics
+  score += SCROLL_SPEED * dt * 0.1;
   player.vy += GRAVITY;
   player.y  += player.vy;
   if (player.y >= FLOOR - PLAYER_H){
-    player.y = FLOOR - PLAYER_H;
-    player.vy = 0;
-    player.onGround = true;
+    player.y = FLOOR - PLAYER_H; player.vy = 0; player.onGround = true;
   }
 
-  // spawning
+  // spawns
   const now = performance.now();
   if (now >= nextBlockAt){ spawnBlock(); nextBlockAt = now + rand(...SPAWN_BLOCK_EVERY); }
   if (now >= nextTreatAt){ spawnTreat(); nextTreatAt = now + rand(...SPAWN_TREAT_EVERY); }
   if (now >= nextDoorAt){  spawnDoor();  nextDoorAt  = now + rand(...SPAWN_DOOR_EVERY); }
-  if (chance(0.3)) spawnLeaf();
 
-  // move objects
+  // move & cleanup
   for (const o of objects){ o.x -= SCROLL_SPEED; }
-
-  // cleanup
   objects = objects.filter(o => o.x + o.w > -40);
 
   // collisions
   for (let i=0;i<objects.length;i++){
     const o = objects[i];
-    if (o.type === "platform" || o.type === "door" || o.type === "block"){
-      if (aabb(player,o)){
-        if (o.type === "block"){ sfx('hit'); endRun("You hit a block!"); return; }
-        if (o.type === "door"){ sfx('door'); endRun(`You reached ${o.label}`, o); return; }
-      }
+    if ((o.type === "platform" || o.type === "door" || o.type === "block") && aabb(player,o)){
+      if (o.type === "block"){ sfx('hit'); endRun("You hit a block!"); return; }
+      if (o.type === "door"){ sfx('door'); endRun(`You reached ${o.label}`, o); return; }
     } else if (o.type === "treat" && aabb(player,o)){
-      score += TREAT_POINTS; sfx('treat');
-      objects.splice(i,1); i--;
+      score += TREAT_POINTS; sfx('treat'); objects.splice(i,1); i--;
     }
   }
-
-  // leaves
-  for (const l of leaves){
-    l.phase += 0.03;
-    l.x += Math.sin(l.phase) * 0.8;
-    l.y += l.vy;
-  }
-  leaves = leaves.filter(l => l.y < H + 30);
 }
 
 function draw(){
@@ -258,26 +260,22 @@ function draw(){
   g.addColorStop(0,"#0a2239"); g.addColorStop(1,"#163a59");
   ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
 
-  // ground strip
+  // ground
   ctx.fillStyle = GROUND_COLOR; ctx.fillRect(0, FLOOR+8, W, H-(FLOOR+8));
   ctx.fillStyle = ICE_COLOR; ctx.fillRect(0, FLOOR-10, W, 6);
 
-  // leaves
+  // leaves (ambient)
   for (const l of leaves){
     ctx.fillStyle = `hsl(${l.hue} 70% 60%)`;
-    ctx.beginPath();
-    ctx.ellipse(l.x, l.y, l.size*0.7, l.size*0.4, Math.sin(l.phase)*0.5, 0, Math.PI*2);
-    ctx.fill();
+    ctx.beginPath(); ctx.ellipse(l.x,l.y,l.size*0.7,l.size*0.4,Math.sin(l.phase)*0.5,0,Math.PI*2); ctx.fill();
   }
 
   // objects
   for (const o of objects){
     if (o.type === "block" || o.type === "platform"){
-      ctx.fillStyle = o.color;
-      roundRect(ctx, o.x, o.y, o.w, o.h, 4, true, false);
+      ctx.fillStyle = o.color; roundRect(ctx, o.x, o.y, o.w, o.h, 4, true, false);
     } else if (o.type === "door"){
-      ctx.fillStyle = o.color;
-      roundRect(ctx, o.x, o.y, o.w, o.h, 6, true, false);
+      ctx.fillStyle = o.color; roundRect(ctx, o.x, o.y, o.w, o.h, 6, true, false);
       ctx.fillStyle = "#173554"; roundRect(ctx, o.x+8, o.y+8, o.w-16, o.h-16, 4, true, false);
       ctx.fillStyle = "#cfe9ff"; ctx.font = "12px system-ui"; ctx.textAlign="center";
       ctx.fillText(o.label, o.x + o.w/2, o.y - 8);
@@ -287,21 +285,21 @@ function draw(){
     }
   }
 
-  // player
-  if (huskyImg.complete && huskyImg.naturalWidth){
-    ctx.save();
-    ctx.translate(player.x + player.w/2, player.y + player.h/2);
-    ctx.scale(player.facing, 1);
-    ctx.drawImage(huskyImg, -player.w/2, -player.h/2, player.w, player.h);
-    ctx.restore();
-  } else {
-    ctx.fillStyle = "#eef7ff";
-    roundRect(ctx, player.x, player.y, player.w, player.h, 6, true, false);
+  // player (only draw if game started to avoid confusion)
+  if (started){
+    if (huskyImg.complete && huskyImg.naturalWidth){
+      ctx.save(); ctx.translate(player.x + player.w/2, player.y + player.h/2); ctx.scale(player.facing,1);
+      ctx.drawImage(huskyImg, -player.w/2, -player.h/2, player.w, player.h); ctx.restore();
+    } else {
+      ctx.fillStyle = "#eef7ff"; roundRect(ctx, player.x, player.y, player.w, player.h, 6, true, false);
+    }
   }
 
-  // HUD
-  ctx.fillStyle = "#cfe9ff"; ctx.font = "16px system-ui"; ctx.textAlign="left";
-  ctx.fillText("Score: " + Math.floor(score), 14, 22);
+  // HUD while running
+  if (running && started){
+    ctx.fillStyle = "#cfe9ff"; ctx.font = "16px system-ui"; ctx.textAlign="left";
+    ctx.fillText("Score: " + Math.floor(score), 14, 22);
+  }
 }
 
 function roundRect(ctx, x, y, w, h, r, fill, stroke){
@@ -315,68 +313,79 @@ function roundRect(ctx, x, y, w, h, r, fill, stroke){
   if (fill) ctx.fill(); if (stroke) ctx.stroke();
 }
 
-/* =========================
-   End run + local “leaderboard”
-   ========================= */
+/* ========== End run + local best ========== */
 function endRun(title, door){
   running = false;
   finalScoreEl.textContent = Math.floor(score);
   overTitle.textContent = title || "Game Over";
-  // door link if we hit one
-  if (door){ doorLink.style.display = ""; doorLink.textContent = `Go to ${door.label}`; doorLink.href = door.url; }
-  else { doorLink.style.display = "none"; }
+  if (door){ doorLink.style.display=""; doorLink.textContent=`Go to ${door.label}`; doorLink.href=door.url; }
+  else { doorLink.style.display="none"; }
 
-  // local best (we’ll replace with global later)
   const you = (localStorage.getItem("hj_name") || "Guest").slice(0,24);
   const best = Math.max(Math.floor(score), +localStorage.getItem("hj_best")||0);
   localStorage.setItem("hj_best", best);
   topList.innerHTML = "";
-  addTop(`1. ${you}`, best);
+  const li = document.createElement("li");
+  const left = document.createElement("span"); left.textContent = `1. ${you}`;
+  const right = document.createElement("strong"); right.textContent = best;
+  li.appendChild(left); li.appendChild(right); topList.appendChild(li);
 
   showOverlay(overOverlay, true);
 }
-function addTop(name, val){
-  const li = document.createElement("li");
-  const left = document.createElement("span"); left.textContent = name;
-  const right = document.createElement("strong"); right.textContent = val;
-  li.appendChild(left); li.appendChild(right); topList.appendChild(li);
-}
 
 function showOverlay(el, on){ el.style.display = on ? "flex" : "none"; }
+function anyOverlayOpen(){
+  return nameOverlay.style.display === "flex" ||
+         startOverlay.style.display === "flex" ||
+         overOverlay.style.display === "flex";
+}
 
-/* =========================
-   Loop
-   ========================= */
-let lastTs=0;
+/* ========== Loop ========== */
 function frame(ts){
   if (!lastTs) lastTs = ts;
-  const dt = clamp((ts - lastTs) / 16.6667, 0, 2); // ~60fps normalized
+  const dt = clamp((ts - lastTs) / 16.6667, 0, 2);
   lastTs = ts;
-  if (running){ update(dt); draw(); }
+  update(dt);
+  draw();
   requestAnimationFrame(frame);
 }
 
-/* =========================
-   Input
-   ========================= */
+/* ========== Input (ignored while overlays open) ========== */
 addEventListener("keydown", e=>{
+  if (anyOverlayOpen()) return;
   if (e.code === "Space" || e.code === "ArrowUp"){ e.preventDefault(); jump(); }
 });
 addEventListener("pointerdown", e=>{
   if (e.target.closest(".overlay") || e.target.id === "againBtn") return;
+  if (anyOverlayOpen()) return;
   jump();
 });
-jumpBtn.addEventListener("click", jump);
-againBtn.addEventListener("click", ()=>{ showOverlay(overOverlay,false); resetGame(); });
+jumpBtn.addEventListener("click", ()=>{ if(!anyOverlayOpen()) jump(); });
 
+againBtn.addEventListener("click", ()=>{
+  showOverlay(overOverlay,false);
+  resetGame();
+});
+
+/* ========== Name + Start flow ========== */
 saveNameBtn.addEventListener("click", ()=>{
   const v = (document.getElementById("nameInput").value||"").trim();
-  if (v) localStorage.setItem("hj_name", v.slice(0,24));
+  if (!v) return;
+  localStorage.setItem("hj_name", v.slice(0,24));
   showOverlay(nameOverlay, false);
+  showOverlay(startOverlay, true);
 });
-if (!localStorage.getItem("hj_name")) showOverlay(nameOverlay, true);
+startBtn.addEventListener("click", ()=>{
+  initAudio();                 // first gesture unlocks audio
+  started = true;
+  showOverlay(startOverlay, false);
+  resetGame();                 // begin the first run now
+});
 
-/* Start */
-resetGame();
+/* Show name or start overlay at load; do not start the game yet */
+if (!localStorage.getItem("hj_name")) showOverlay(nameOverlay, true);
+else showOverlay(startOverlay, true);
+
+/* Kick off render loop (game won’t run until Start) */
 requestAnimationFrame(frame);
 </script>
