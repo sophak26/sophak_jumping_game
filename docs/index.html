@@ -113,11 +113,11 @@ function init(){
   const TREAT_POINTS = 50;
   const GROUND_COLOR = "#0f2b45", ICE_COLOR = "#6ed4ff";
   const GAP_CHANCE = 0.25;      // 25% of obstacles are "gap" pairs
-  const GAP_SIZE = [250, 500];  // opening size
+  const GAP_SIZE = [200, 400];  // opening size
   const MAX_LEAVES = 40;
 
   // Canvas and scaling (16:9 with letterboxing)
-  const BASE_W = 800, BASE_H = 450, RATIO = BASE_W/BASE_H;
+  const BASE_W = 640, BASE_H = 360, RATIO = BASE_W/BASE_H;
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const jumpBtn = document.getElementById('jumpBtn');
@@ -135,7 +135,7 @@ function init(){
   const nameInput = document.getElementById('nameInput');
   const continuePortrait = document.getElementById('continuePortrait');
 
-  let W = BASE_W, H = BASE_H, FLOOR = 380;
+  let W = BASE_W, H = BASE_H, FLOOR = 1000;
   function fitCanvas(){
     const vw = Math.max(320, window.innerWidth);
     const vh = Math.max(320, window.innerHeight);
