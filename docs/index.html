@@ -3,14 +3,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Husky Jump</title>
 <style>
-  :root {
-    --bg: #0b1b2a; --fg: #e9f2ff; --panel: #11273d; --accent: #5ec3ff;
-  }
+  :root{--bg:#0b1b2a;--fg:#e9f2ff;--panel:#11273d;--accent:#5ec3ff}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Helvetica,Arial,sans-serif}
   #wrap{position:relative;min-height:100vh;display:flex;flex-direction:column}
   #gamewrap{flex:1;display:flex;align-items:center;justify-content:center}
   canvas{display:block;width:100vw;height:100vh;touch-action:manipulation}
-  /* Overlays */
   .overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(5,15,25,.65);z-index:10}
   .box{background:var(--panel);border:1px solid #284963;border-radius:14px;max-width:420px;width:90%;padding:18px 16px;box-shadow:0 12px 40px rgba(0,0,0,.4)}
   .box h2{margin:0 0 8px;font-size:20px}
@@ -27,14 +24,6 @@
   footer a{color:#9fd2ff}
 </style>
 
-<!-- TODO: Replace with your Supabase project values to enable the global leaderboard.
-     Without these, the game still runs and shows a local-only high score. -->
-<script>
-  const SUPABASE_URL  = ""; // e.g., https://abcdxyz.supabase.co
-  const SUPABASE_ANON = ""; // your anon public key
-</script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
 <div id="wrap">
   <div id="gamewrap">
     <canvas id="game" width="800" height="450"></canvas>
@@ -43,7 +32,7 @@
 
   <footer>
     <div style="max-width:960px;margin:0 auto">
-      <span>Husky Jump · Tap/click or press Space/↑ to jump. Avoid blocks, collect treats, and “hit” a door to visit that page.</span>
+      <span>Husky Jump · Tap/click or press Space/↑ to jump. Avoid blocks, collect treats, and “hit” a door to visit a page.</span>
       <span style="float:right">
         <a href="https://www.flaticon.com/free-icons/inu" title="inu icons" target="_blank" rel="noopener">Inu icons created by Park Jisun - Flaticon</a>
       </span>
@@ -51,11 +40,11 @@
   </footer>
 </div>
 
-<!-- Name prompt (first visit) -->
+<!-- Name prompt (local only for now; we’ll add global later) -->
 <div id="nameOverlay" class="overlay">
   <div class="box">
     <h2>Welcome!</h2>
-    <p>Enter a name for the leaderboard (you can change it later):</p>
+    <p>Enter a name (shown on this device’s best score):</p>
     <div class="row">
       <input id="nameInput" type="text" maxlength="24" placeholder="Your name">
       <button id="saveNameBtn">Save</button>
@@ -63,7 +52,7 @@
   </div>
 </div>
 
-<!-- Game Over + Leaderboard -->
+<!-- Game Over + “leaderboard” (local best for now) -->
 <div id="overOverlay" class="overlay">
   <div class="box">
     <h2 id="overTitle">Game Over</h2>
@@ -80,62 +69,27 @@
 /* =========================
    Config
    ========================= */
+// Fill these with your WithJoy URLs later
 const DOORS = [
-  { label: "Home",           url: "home.html",           color: "#ffd166" },
-  { label: "Schedule",       url: "schedule.html",       color: "#80ed99" },
-  { label: "RSVP",           url: "rsvp.html",           color: "#ef476f" },
-  { label: "Accommodations", url: "accommodations.html", color: "#5ec3ff" }
+  { label: "Home",           url: "#", color: "#ffd166" },
+  { label: "Schedule",       url: "#", color: "#80ed99" },
+  { label: "RSVP",           url: "#", color: "#ef476f" },
+  { label: "Accommodations", url: "#", color: "#5ec3ff" }
 ];
-// Treats worth this many points:
-const TREAT_POINTS = 50;
-// Physics / game feel
-const GRAVITY = 0.6;
-const JUMP_VELOCITY = -11.5;
-const SCROLL_SPEED = 4.2; // px per frame at 60fps
-const GROUND_Y = 360;     // baseline where the husky stands
-const SPAWN_BLOCK_EVERY = [900, 1500];    // ms range
-const SPAWN_TREAT_EVERY = [1200, 2200];   // ms range
-const SPAWN_DOOR_EVERY  = [8000, 12000];  // ms range
-const MAX_LEAVES = 40;
 
-/* =========================
-   Leaderboard (Supabase, fallback to local)
-   ========================= */
-let sb = null;
-if (SUPABASE_URL && SUPABASE_ANON) {
-  sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-}
-async function submitScore(name, score){
-  if (!sb) {
-    // local fallback
-    const best = Math.max(score, +localStorage.getItem("hj_best")||0);
-    localStorage.setItem("hj_best", best);
-    return;
-  }
-  try {
-    await sb.from("scores").insert([{ name, score }]);
-  } catch (e) {
-    console.warn("submitScore failed", e);
-  }
-}
-async function fetchTop(limit=3){
-  if (!sb) {
-    const best = +localStorage.getItem("hj_best")||0;
-    const you = localStorage.getItem("hj_name")||"You";
-    return [{ name: you, score: best }];
-  }
-  try {
-    const { data, error } = await sb.from("scores")
-      .select("name,score")
-      .order("score", { ascending:false })
-      .limit(limit);
-    if (error) throw error;
-    return data||[];
-  } catch (e) {
-    console.warn("fetchTop failed", e);
-    return [];
-  }
-}
+const PLAYER_W = 56, PLAYER_H = 48;
+const FLOOR = 380;               // baseline for feet (y where feet land)
+const GRAVITY = 0.7;             // slightly stronger gravity
+const JUMP_VELOCITY = -13.5;     // higher jump
+const DOUBLE_JUMP_VELOCITY = -11;
+const SCROLL_SPEED = 4.4;
+const TREAT_POINTS = 50;
+const GROUND_COLOR = "#0f2b45";
+const ICE_COLOR = "#6ed4ff";
+const MAX_LEAVES = 40;
+const SPAWN_BLOCK_EVERY = [900, 1500];   // ms
+const SPAWN_TREAT_EVERY = [1200, 2200];  // ms
+const SPAWN_DOOR_EVERY  = [8000, 12000]; // ms
 
 /* =========================
    Canvas + helpers
@@ -150,6 +104,7 @@ const topList = document.getElementById("topList");
 const overTitle = document.getElementById("overTitle");
 const doorLink = document.getElementById("doorLink");
 const againBtn = document.getElementById("againBtn");
+const saveNameBtn = document.getElementById("saveNameBtn");
 
 let W = canvas.width, H = canvas.height;
 function rand(min,max){ return Math.random()*(max-min)+min; }
@@ -164,29 +119,49 @@ huskyImg.src = "assets/husky.png"; // must exist
 huskyImg.crossOrigin = "anonymous";
 
 /* =========================
+   Simple sounds (WebAudio beeps)
+   ========================= */
+const audio = { ctx:null, enabled:true };
+function initAudio(){ if(audio.ctx) return; const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return; audio.ctx=new AC(); }
+function tone(f, dur, type='sine', vol=0.08){
+  if(!audio.ctx || !audio.enabled) return;
+  const ctx=audio.ctx, o=ctx.createOscillator(), g=ctx.createGain();
+  o.type=type; o.frequency.value=f; o.connect(g); g.connect(ctx.destination);
+  const now=ctx.currentTime; g.gain.value=0; o.start(now);
+  g.gain.linearRampToValueAtTime(vol, now+0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, now+dur);
+  o.stop(now+dur+0.02);
+}
+function sfx(name){
+  switch(name){
+    case 'jump':  tone(620,0.12,'square',0.08); break;
+    case 'jump2': tone(740,0.12,'square',0.07); break;
+    case 'treat': tone(900,0.08,'triangle',0.07); tone(1200,0.10,'triangle',0.05); break;
+    case 'hit':   tone(180,0.20,'sawtooth',0.12); break;
+    case 'door':  tone(520,0.14,'square',0.08); tone(650,0.16,'square',0.06); break;
+  }
+}
+addEventListener("pointerdown", ()=>{ initAudio(); }, { once:true });
+addEventListener("keydown", ()=>{ initAudio(); }, { once:true });
+
+/* =========================
    Game state
    ========================= */
-let player, objects, leaves, score, running, nextBlockAt, nextTreatAt, nextDoorAt, doorIndex;
+let player, objects, leaves, score, running, nextBlockAt, nextTreatAt, nextDoorAt, doorIndex, canDouble;
 let lastTime = 0;
 
 function resetGame(){
   score = 0;
   running = true;
   doorIndex = 0;
-  player = {
-    x: 120,
-    y: GROUND_Y,
-    w: 48,
-    h: 48,
-    vy: 0,
-    onGround: true,
-    facing: 1
-  };
-  objects = []; // {type:'block'|'treat'|'door', x,y,w,h, color,label,url}
-  leaves = [];
-  nextBlockAt = performance.now() + rand(...SPAWN_BLOCK_EVERY);
-  nextTreatAt = performance.now() + rand(...SPAWN_TREAT_EVERY);
-  nextDoorAt  = performance.now() + rand(...SPAWN_DOOR_EVERY);
+  canDouble = false;
+  player = { x:120, y:FLOOR-PLAYER_H, w:PLAYER_W, h:PLAYER_H, vy:0, onGround:true, facing:1 };
+  objects = [];   // {type:'block'|'treat'|'door'|'platform', x,y,w,h,color,label,url}
+  leaves = [];    // decorative
+  const now = performance.now();
+  nextBlockAt = now + rand(...SPAWN_BLOCK_EVERY);
+  nextTreatAt = now + rand(...SPAWN_TREAT_EVERY);
+  nextDoorAt  = now + rand(...SPAWN_DOOR_EVERY);
 }
 
 function jump(){
@@ -194,86 +169,77 @@ function jump(){
   if (player.onGround){
     player.vy = JUMP_VELOCITY;
     player.onGround = false;
+    canDouble = true;
+    sfx('jump');
+  } else if (canDouble){
+    player.vy = DOUBLE_JUMP_VELOCITY;
+    canDouble = false;
+    sfx('jump2');
   }
 }
 
 function spawnBlock(){
-  const h = rand(30, 90);
-  const w = rand(24, 40);
-  const y = GROUND_Y + (rand(-6, 0)); // slightly above ground
-  objects.push({ type:"block", x: W + 40, y: y - h, w, h, color:"#d9534f" });
+  const h = rand(38, 94);
+  const w = rand(30, 48);
+  const yTop = FLOOR - h;                       // sits on the ground
+  objects.push({ type:"block", x: W + 40, y: yTop, w, h, color:"#d9534f" });
 }
-
 function spawnTreat(){
-  const y = rand(200, GROUND_Y - 50);
+  const y = rand(150, FLOOR - 80);
   objects.push({ type:"treat", x: W + 40, y, w: 18, h: 18, color:"#ffd166" });
 }
-
 function spawnDoor(){
   const d = DOORS[doorIndex % DOORS.length]; doorIndex++;
-  // Place door on a little pedestal block
   const doorW = 34, doorH = 58;
-  const platformY = rand(280, 330);
+  const platformY = rand(FLOOR - 110, FLOOR - 60); // reachable with one jump; sometimes double
+  // door and small platform under it
   objects.push({ type:"door", label:d.label, url:d.url, color:d.color,
                  x: W + 60, y: platformY - doorH, w: doorW, h: doorH });
-  // add a platform under the door
-  objects.push({ type:"platform", x: W + 60 - 40, y: platformY, w: 120, h: 14, color:"#6ed4ff" });
+  objects.push({ type:"platform", x: W + 60 - 40, y: platformY, w: 120, h: 14, color: ICE_COLOR });
 }
-
 function spawnLeaf(){
   if (leaves.length >= MAX_LEAVES) return;
-  leaves.push({
-    x: rand(0,W), y: -20, vy: rand(0.6, 1.4),
-    amp: rand(8,18), phase: rand(0, Math.PI*2), size: rand(6,12), hue: Math.floor(rand(20,40))*10
-  });
+  leaves.push({ x: rand(0,W), y: -20, vy: rand(0.6,1.4), amp: rand(8,18), phase: rand(0,Math.PI*2), size: rand(6,12), hue: Math.floor(rand(20,40))*10 });
 }
-
 function aabb(a,b){ return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
 
 function update(dt){
-  // Score by distance
+  // distance-based score
   score += SCROLL_SPEED * dt * 0.1;
 
-  // player physics
+  // physics
   player.vy += GRAVITY;
-  player.y += player.vy;
-  if (player.y >= GROUND_Y){
-    player.y = GROUND_Y;
+  player.y  += player.vy;
+  if (player.y >= FLOOR - PLAYER_H){
+    player.y = FLOOR - PLAYER_H;
     player.vy = 0;
     player.onGround = true;
   }
 
-  // spawn timers
+  // spawning
   const now = performance.now();
   if (now >= nextBlockAt){ spawnBlock(); nextBlockAt = now + rand(...SPAWN_BLOCK_EVERY); }
   if (now >= nextTreatAt){ spawnTreat(); nextTreatAt = now + rand(...SPAWN_TREAT_EVERY); }
-  if (now >= nextDoorAt){ spawnDoor(); nextDoorAt = now + rand(...SPAWN_DOOR_EVERY); }
+  if (now >= nextDoorAt){  spawnDoor();  nextDoorAt  = now + rand(...SPAWN_DOOR_EVERY); }
   if (chance(0.3)) spawnLeaf();
 
   // move objects
   for (const o of objects){ o.x -= SCROLL_SPEED; }
 
-  // clean off-screen
+  // cleanup
   objects = objects.filter(o => o.x + o.w > -40);
 
   // collisions
   for (let i=0;i<objects.length;i++){
     const o = objects[i];
     if (o.type === "platform" || o.type === "door" || o.type === "block"){
-      if (aabb(player, o)){
-        if (o.type === "block"){
-          endRun("You hit a block!");
-          return;
-        } else if (o.type === "door"){
-          endRun(`You reached ${o.label}`, o);
-          return;
-        }
+      if (aabb(player,o)){
+        if (o.type === "block"){ sfx('hit'); endRun("You hit a block!"); return; }
+        if (o.type === "door"){ sfx('door'); endRun(`You reached ${o.label}`, o); return; }
       }
-    } else if (o.type === "treat"){
-      if (aabb(player, o)){
-        score += TREAT_POINTS;
-        objects.splice(i,1); i--;
-      }
+    } else if (o.type === "treat" && aabb(player,o)){
+      score += TREAT_POINTS; sfx('treat');
+      objects.splice(i,1); i--;
     }
   }
 
@@ -287,15 +253,14 @@ function update(dt){
 }
 
 function draw(){
-  // sky gradient
+  // winter gradient
   const g = ctx.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,"#0a2239");
-  g.addColorStop(1,"#163a59");
+  g.addColorStop(0,"#0a2239"); g.addColorStop(1,"#163a59");
   ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
 
-  // ground
-  ctx.fillStyle = "#0f2b45"; ctx.fillRect(0,GROUND_Y+48,W,H-(GROUND_Y+48));
-  ctx.fillStyle = "#6ed4ff"; ctx.fillRect(0,GROUND_Y+30,W,6);
+  // ground strip
+  ctx.fillStyle = GROUND_COLOR; ctx.fillRect(0, FLOOR+8, W, H-(FLOOR+8));
+  ctx.fillStyle = ICE_COLOR; ctx.fillRect(0, FLOOR-10, W, 6);
 
   // leaves
   for (const l of leaves){
@@ -311,17 +276,14 @@ function draw(){
       ctx.fillStyle = o.color;
       roundRect(ctx, o.x, o.y, o.w, o.h, 4, true, false);
     } else if (o.type === "door"){
-      // simple door with label
       ctx.fillStyle = o.color;
       roundRect(ctx, o.x, o.y, o.w, o.h, 6, true, false);
       ctx.fillStyle = "#173554"; roundRect(ctx, o.x+8, o.y+8, o.w-16, o.h-16, 4, true, false);
       ctx.fillStyle = "#cfe9ff"; ctx.font = "12px system-ui"; ctx.textAlign="center";
       ctx.fillText(o.label, o.x + o.w/2, o.y - 8);
     } else if (o.type === "treat"){
-      // biscuit-ish oval
-      ctx.fillStyle = o.color;
-      roundRect(ctx, o.x, o.y, o.w, o.h, 6, true, false);
-      ctx.fillStyle = "#b9923b"; ctx.fillRect(o.x+5,o.y+7,o.w-10,4);
+      ctx.fillStyle = o.color; roundRect(ctx, o.x, o.y, o.w, o.h, 6, true, false);
+      ctx.fillStyle = "#b9923b"; ctx.fillRect(o.x+5, o.y+7, o.w-10, 4);
     }
   }
 
@@ -330,8 +292,7 @@ function draw(){
     ctx.save();
     ctx.translate(player.x + player.w/2, player.y + player.h/2);
     ctx.scale(player.facing, 1);
-    const drawW = player.w, drawH = player.h;
-    ctx.drawImage(huskyImg, -drawW/2, -drawH/2, drawW, drawH);
+    ctx.drawImage(huskyImg, -player.w/2, -player.h/2, player.w, player.h);
     ctx.restore();
   } else {
     ctx.fillStyle = "#eef7ff";
@@ -346,66 +307,52 @@ function draw(){
 function roundRect(ctx, x, y, w, h, r, fill, stroke){
   if (w < 2*r) r = w/2; if (h < 2*r) r = h/2;
   ctx.beginPath();
-  ctx.moveTo(x+r, y);
-  ctx.arcTo(x+w, y,   x+w, y+h, r);
-  ctx.arcTo(x+w, y+h, x,   y+h, r);
-  ctx.arcTo(x,   y+h, x,   y,   r);
-  ctx.arcTo(x,   y,   x+w, y,   r);
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,  x+w,y+h, r);
+  ctx.arcTo(x+w,y+h,x,  y+h, r);
+  ctx.arcTo(x,  y+h,x,  y,   r);
+  ctx.arcTo(x,  y,  x+w,y,   r);
   if (fill) ctx.fill(); if (stroke) ctx.stroke();
 }
 
+/* =========================
+   End run + local “leaderboard”
+   ========================= */
 function endRun(title, door){
   running = false;
   finalScoreEl.textContent = Math.floor(score);
   overTitle.textContent = title || "Game Over";
-  // if door was hit, show a link
-  if (door){
-    doorLink.style.display = "";
-    doorLink.textContent = `Go to ${door.label}`;
-    doorLink.href = door.url;
-  } else {
-    doorLink.style.display = "none";
-  }
-  // submit + fetch leaderboard
-  const name = (localStorage.getItem("hj_name")||"Guest").slice(0,24);
-  submitScore(name, Math.floor(score)).then(()=> fetchTop(3)).then(showTop);
+  // door link if we hit one
+  if (door){ doorLink.style.display = ""; doorLink.textContent = `Go to ${door.label}`; doorLink.href = door.url; }
+  else { doorLink.style.display = "none"; }
+
+  // local best (we’ll replace with global later)
+  const you = (localStorage.getItem("hj_name") || "Guest").slice(0,24);
+  const best = Math.max(Math.floor(score), +localStorage.getItem("hj_best")||0);
+  localStorage.setItem("hj_best", best);
+  topList.innerHTML = "";
+  addTop(`1. ${you}`, best);
+
   showOverlay(overOverlay, true);
 }
-
-function showTop(rows){
-  topList.innerHTML = "";
-  if (!rows || rows.length===0){
-    const li = document.createElement("li");
-    li.textContent = "No scores yet.";
-    topList.appendChild(li);
-    return;
-  }
-  rows.forEach((r,i)=>{
-    const li = document.createElement("li");
-    const left = document.createElement("span");
-    left.textContent = `${i+1}. ${r.name || "Anon"}`;
-    const right = document.createElement("strong");
-    right.textContent = r.score;
-    li.appendChild(left); li.appendChild(right);
-    topList.appendChild(li);
-  });
+function addTop(name, val){
+  const li = document.createElement("li");
+  const left = document.createElement("span"); left.textContent = name;
+  const right = document.createElement("strong"); right.textContent = val;
+  li.appendChild(left); li.appendChild(right); topList.appendChild(li);
 }
 
-function showOverlay(el, on){
-  el.style.display = on ? "flex" : "none";
-}
+function showOverlay(el, on){ el.style.display = on ? "flex" : "none"; }
 
 /* =========================
    Loop
    ========================= */
+let lastTs=0;
 function frame(ts){
-  if (!lastTime) lastTime = ts;
-  const dt = clamp((ts - lastTime) / 16.6667, 0, 2); // ~60fps step normalized
-  lastTime = ts;
-  if (running){
-    update(dt);
-    draw();
-  }
+  if (!lastTs) lastTs = ts;
+  const dt = clamp((ts - lastTs) / 16.6667, 0, 2); // ~60fps normalized
+  lastTs = ts;
+  if (running){ update(dt); draw(); }
   requestAnimationFrame(frame);
 }
 
@@ -413,29 +360,21 @@ function frame(ts){
    Input
    ========================= */
 addEventListener("keydown", e=>{
-  if (e.code === "Space" || e.code === "ArrowUp") { e.preventDefault(); jump(); }
+  if (e.code === "Space" || e.code === "ArrowUp"){ e.preventDefault(); jump(); }
 });
 addEventListener("pointerdown", e=>{
-  // ignore clicks on overlay buttons
   if (e.target.closest(".overlay") || e.target.id === "againBtn") return;
   jump();
 });
 jumpBtn.addEventListener("click", jump);
+againBtn.addEventListener("click", ()=>{ showOverlay(overOverlay,false); resetGame(); });
 
-againBtn.addEventListener("click", ()=>{
-  showOverlay(overOverlay, false);
-  resetGame();
-});
-
-document.getElementById("saveNameBtn").addEventListener("click", ()=>{
+saveNameBtn.addEventListener("click", ()=>{
   const v = (document.getElementById("nameInput").value||"").trim();
   if (v) localStorage.setItem("hj_name", v.slice(0,24));
   showOverlay(nameOverlay, false);
 });
-/* show name prompt only the first time */
-if (!localStorage.getItem("hj_name")){
-  showOverlay(nameOverlay, true);
-}
+if (!localStorage.getItem("hj_name")) showOverlay(nameOverlay, true);
 
 /* Start */
 resetGame();
