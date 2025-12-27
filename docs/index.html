@@ -34,7 +34,7 @@
 
   <footer>
     <div style="max-width:960px;margin:0 auto">
-      <span>Husky Jump · Tap/click or press Space/↑ to jump. Double-tap for a double jump. Avoid blocks, collect treats, “hit” a door to visit a page.</span>
+      <span>Husky Jump · Tap/click or press Space/↑ to jump. Double‑tap for a double jump. Avoid blocks, collect treats, “hit” a door to visit a page.</span>
       <span style="float:right">
         <a href="https://www.flaticon.com/free-icons/inu" title="inu icons" target="_blank" rel="noopener">Inu icons created by Park Jisun - Flaticon</a>
       </span>
@@ -60,11 +60,9 @@
     <h2>Husky Jump</h2>
     <p>How to play:</p>
     <ul class="inst">
-      <li>Tap/click or press Space/↑ to jump.</li>
-      <li>Tap/click again while in the air to double jump.</li>
-      <li>Collect treats for bonus points.</li>
-      <li>Avoid red blocks; some have a vertical gap.</li>
-      <li>Bump into a door to open that page.</li>
+      <li>Tap/click or press Space/↑ to jump (tap again in air to double jump).</li>
+      <li>Collect treats for bonus points; avoid red blocks.</li>
+      <li>Doors are higher up—reach one to open that page.</li>
     </ul>
     <div class="row" style="justify-content:flex-end">
       <button id="startBtn">Start</button>
@@ -108,13 +106,17 @@ function init(){
     { label: "Accommodations", url: "#", color: "#5ec3ff" }
   ];
 
-  // Feel
+  // Feel (kept exactly as you requested)
   const GRAVITY = 0.7, JUMP_V = -14.0, DJUMP_V = -14, SPEED = 4.4;
   const TREAT_POINTS = 50;
   const GROUND_COLOR = "#0f2b45", ICE_COLOR = "#6ed4ff";
   const GAP_CHANCE = 0.25;      // 25% of obstacles are "gap" pairs
   const GAP_SIZE = [200, 400];  // opening size
   const MAX_LEAVES = 40;
+
+  // Extra: acceleration (px/s^2) and max speed cap
+  const ACCEL = 24;             // increase in px per second, per second
+  const MAX_SPEED = 12;         // px per frame cap (~720 px/s)
 
   // Canvas and scaling (16:9 with letterboxing)
   const BASE_W = 800, BASE_H = 450, RATIO = BASE_W/BASE_H;
@@ -135,7 +137,7 @@ function init(){
   const nameInput = document.getElementById('nameInput');
   const continuePortrait = document.getElementById('continuePortrait');
 
-  let W = BASE_W, H = BASE_H, FLOOR = 1000;
+  let W = BASE_W, H = BASE_H, FLOOR = 380;
   function fitCanvas(){
     const vw = Math.max(320, window.innerWidth);
     const vh = Math.max(320, window.innerHeight);
@@ -148,7 +150,7 @@ function init(){
     canvas.height = Math.floor(cssH * dpr);
     ctx.setTransform(dpr,0,0,dpr,0,0);
     W = cssW; H = cssH;
-    FLOOR = Math.round(H * 0.86); // slightly lower ground on big screens
+    FLOOR = Math.round(H * 0.86);
   }
   function checkRotateHint(){
     const portrait = window.innerHeight > window.innerWidth && window.innerWidth < 800;
@@ -195,6 +197,10 @@ function init(){
   let started=false, running=false, player, score, nextBlockAt, nextTreatAt, nextDoorAt, doorIndex, canDouble;
   let objects=[], leaves=[], lastTs=0;
 
+  // Speed uses px/second internally; we convert your SPEED (px/frame) to px/sec.
+  let speedPS = SPEED * 60;                // start speed (px/sec)
+  const MAX_SPEED_PS = MAX_SPEED * 60;     // cap in px/sec
+
   function resetGame(){
     score=0; running=true; doorIndex=0; canDouble=false;
     player={ x:120, y:FLOOR-PLAYER_H, w:PLAYER_W, h:PLAYER_H, vy:0, onGround:true, facing:1 };
@@ -202,8 +208,9 @@ function init(){
     leaves=[]; for(let i=0;i<Math.min(10,MAX_LEAVES);i++){ leaves.push({x:rand(0,W),y:rand(0,H),vy:rand(0.6,1.4),amp:rand(8,18),phase:rand(0,Math.PI*2),size:rand(6,12),hue:Math.floor(rand(20,40))*10});}
     const now=performance.now();
     nextBlockAt=now+rand(900,1500);
-    nextTreatAt=now+rand(400,600);
+    nextTreatAt=now+rand(1200,2200);
     nextDoorAt =now+rand(8000,12000);
+    speedPS = SPEED * 60;                  // reset speed each run
   }
 
   function jump(){
@@ -218,33 +225,30 @@ function init(){
     objects.push({ type:'block', x:W+40, y:FLOOR-h, w, h, color:'#d9534f' });
   }
   function spawnGapPair(){
-    // Keep the opening near the ground (reachable with single/double jump)
-    const open=rand(GAP_SIZE[0], GAP_SIZE[1]);               // gap height
-    const center=FLOOR - rand(100, 160);                     // center above ground
-    const bottomH = Math.max(30, FLOOR - (center + open/2)); // bottom block height
-    const topH    = Math.max(30, center - open/2);           // top block height
+    const open = rand(GAP_SIZE[0], GAP_SIZE[1]);         // big opening (200–400)
+    let center = FLOOR - rand(150, 240);                 // center above ground
+    center = clamp(center, open/2 + 30, FLOOR - open/2 - 30);
+    const bottomH = Math.max(30, FLOOR - (center + open/2));
+    const topH    = Math.max(30, center - open/2);
     const w=rand(32,44);
     objects.push({ type:'block', x:W+40, y:FLOOR-bottomH, w, h:bottomH, color:'#d9534f' });
     objects.push({ type:'block', x:W+40, y:0,              w, h:topH,    color:'#d9534f' });
-    if(chance(0.4)){ const gy=center - 9; objects.push({ type:'treat', x:W+40+w+30, y:gy, w:18, h:18, color:'#ffd166' }); }
+    if(Math.random()<0.4){ const gy=center - 9; objects.push({ type:'treat', x:W+40+w+30, y:gy, w:18, h:18, color:'#ffd166' }); }
   }
-  function spawnObstacle(){ if(chance(GAP_CHANCE)) spawnGapPair(); else spawnGroundBlock(); }
+  function spawnObstacle(){ if(Math.random()<GAP_CHANCE) spawnGapPair(); else spawnGroundBlock(); }
 
   function spawnTreat(){
     const y=rand(150, FLOOR-80);
     objects.push({ type:'treat', x:W+40, y, w:18, h:18, color:'#ffd166' });
   }
   function spawnDoor(){
+    // Higher doors, no pedestal
     const d=DOORS[doorIndex % DOORS.length]; doorIndex++;
     const doorW=34, doorH=58;
-    const rise = rand(65, 120);                              // pedestal rise above ground
-    const platformY = FLOOR - rise;
-    // door
+    const rise = rand(160, 260);                          // how high above ground
+    const y = FLOOR - rise - doorH;
     objects.push({ type:'door', label:d.label, url:d.url, color:d.color,
-                   x: W+60, y: platformY - doorH, w: doorW, h: doorH });
-    // narrow pedestal (easy to pass)
-    const pedW = 56, pedH = 12;
-    objects.push({ type:'platform', x: W+60 - pedW/2, y: platformY, w: pedW, h: pedH, color: ICE_COLOR });
+                   x: W+60, y, w: doorW, h: doorH });
   }
   function spawnLeaf(){
     if(leaves.length>=MAX_LEAVES) return;
@@ -252,8 +256,8 @@ function init(){
   }
 
   function aabb(a,b){ return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y; }
-  // Door entry requires center inside inner 60% horizontally + normal overlap
   function doorEntered(p,d){
+    // require player's center to be inside the middle 60% horizontally + overlap
     const cx=p.x+p.w*0.5, innerL=d.x+d.w*0.2, innerR=d.x+d.w*0.8;
     const vertical = p.y+p.h > d.y+6 && p.y < d.y+d.h-6;
     return cx>innerL && cx<innerR && vertical && aabb(p,d);
@@ -261,22 +265,33 @@ function init(){
 
   // Update/draw
   function update(dt){
+    // dt is “frames at 60fps”; convert to seconds
+    const sec = dt / 60;
+
     if(Math.random()<0.2) spawnLeaf();
     for(const l of leaves){ l.phase+=0.03; l.x+=Math.sin(l.phase)*0.8; l.y+=l.vy; }
     leaves = leaves.filter(l=>l.y<H+30);
 
     if(!running || !started) return;
 
-    score += SPEED * dt * 0.1;
+    // accelerate speed over time (px/sec^2)
+    speedPS = Math.min(MAX_SPEED_PS, speedPS + ACCEL * sec);
+
+    // distance-based score scales with current speed
+    score += speedPS * sec * 0.1;
+
+    // physics
     player.vy += GRAVITY; player.y += player.vy;
     if(player.y >= FLOOR-PLAYER_H){ player.y=FLOOR-PLAYER_H; player.vy=0; player.onGround=true; }
 
+    // spawns (time-based, not speed-based)
     const now=performance.now();
     if(now>=nextBlockAt){ spawnObstacle(); nextBlockAt=now+rand(900,1500); }
     if(now>=nextTreatAt){ spawnTreat();   nextTreatAt=now+rand(1200,2200); }
     if(now>=nextDoorAt){  spawnDoor();    nextDoorAt =now+rand(8000,12000); }
 
-    for(const o of objects) o.x -= SPEED;
+    // move with current speed (px/sec * sec)
+    for(const o of objects) o.x -= speedPS * sec;
     objects = objects.filter(o=>o.x+o.w>-60);
 
     for(let i=0;i<objects.length;i++){
@@ -290,7 +305,7 @@ function init(){
   function draw(){
     const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#0a2239'); g.addColorStop(1,'#163a59');
     ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-    ctx.fillStyle=GROUND_COLOR; ctx.fillRect(0, FLOOR+8, W, H-(FLOOR+8));
+    ctx.fillStyle=GROUND_COLOR; ctx.fillRect(0, Math.round(FLOOR)+8, W, H-(Math.round(FLOOR)+8));
     ctx.fillStyle=ICE_COLOR;    ctx.fillRect(0, FLOOR-10, W, 6);
 
     for(const l of leaves){
@@ -299,7 +314,7 @@ function init(){
     }
 
     for(const o of objects){
-      if(o.type==='block' || o.type==='platform'){ ctx.fillStyle=o.color; roundRect(ctx,o.x,o.y,o.w,o.h,4,true,false); }
+      if(o.type==='block'){ ctx.fillStyle=o.color; roundRect(ctx,o.x,o.y,o.w,o.h,4,true,false); }
       else if(o.type==='door'){
         ctx.fillStyle=o.color; roundRect(ctx,o.x,o.y,o.w,o.h,6,true,false);
         ctx.fillStyle='#173554'; roundRect(ctx,o.x+8,o.y+8,o.w-16,o.h-16,4,true,false);
@@ -357,7 +372,7 @@ function init(){
 
   function frame(ts){
     if(!lastTs) lastTs=ts;
-    const dt=clamp((ts-lastTs)/16.6667,0,2); lastTs=ts;
+    const dt=Math.max(0,Math.min((ts-lastTs)/16.6667,2)); lastTs=ts; // normalized
     update(dt); draw(); requestAnimationFrame(frame);
   }
 
