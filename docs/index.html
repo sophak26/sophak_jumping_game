@@ -1,4 +1,3 @@
-
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -8,7 +7,6 @@
   html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Helvetica,Arial,sans-serif}
   #wrap{position:relative;min-height:100vh;display:flex;flex-direction:column}
   #gamewrap{flex:1;display:flex;align-items:center;justify-content:center}
-  /* center the canvas, keep aspect ratio via inline sizing from JS */
   canvas{display:block;touch-action:manipulation;background:transparent}
   .overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(5,15,25,.65);z-index:10}
   .box{background:var(--panel);border:1px solid #284963;border-radius:14px;max-width:480px;width:90%;padding:18px 16px;box-shadow:0 12px 40px rgba(0,0,0,.4)}
@@ -44,7 +42,7 @@
   </footer>
 </div>
 
-<!-- 1) Name overlay -->
+<!-- Name -->
 <div id="nameOverlay" class="overlay">
   <div class="box">
     <h2>Welcome!</h2>
@@ -56,7 +54,7 @@
   </div>
 </div>
 
-<!-- 2) Start/Instructions overlay -->
+<!-- Start/instructions -->
 <div id="startOverlay" class="overlay">
   <div class="box">
     <h2>Husky Jump</h2>
@@ -65,7 +63,7 @@
       <li>Tap/click or press Space/↑ to jump.</li>
       <li>Tap/click again while in the air to double jump.</li>
       <li>Collect treats for bonus points.</li>
-      <li>Avoid red blocks; some are stacked with a vertical gap.</li>
+      <li>Avoid red blocks; some have a vertical gap.</li>
       <li>Bump into a door to open that page.</li>
     </ul>
     <div class="row" style="justify-content:flex-end">
@@ -74,7 +72,18 @@
   </div>
 </div>
 
-<!-- 3) Game Over + local best -->
+<!-- Rotate hint for phones -->
+<div id="rotateOverlay" class="overlay">
+  <div class="box">
+    <h2>Rotate your phone</h2>
+    <p>This game looks best in landscape. Rotate your device, or continue in portrait.</p>
+    <div class="row" style="justify-content:flex-end">
+      <button id="continuePortrait" class="btn secondary">Continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- Game over -->
 <div id="overOverlay" class="overlay">
   <div class="box">
     <h2 id="overTitle">Game Over</h2>
@@ -91,7 +100,7 @@
 window.addEventListener('DOMContentLoaded', init);
 
 function init(){
-  /* ===== Config (replace URLs with your WithJoy links later) ===== */
+  // Replace URLs with your WithJoy links later
   const DOORS = [
     { label: "Home",           url: "#", color: "#ffd166" },
     { label: "Schedule",       url: "#", color: "#80ed99" },
@@ -99,365 +108,273 @@ function init(){
     { label: "Accommodations", url: "#", color: "#5ec3ff" }
   ];
 
-  const PLAYER_W = 56, PLAYER_H = 48;
-  let FLOOR = 380;                    // recomputed on resize to fit canvas
-  const GRAVITY = 0.7;
-  const JUMP_VELOCITY = -13.5;
-  const DOUBLE_JUMP_VELOCITY = -11;
-  const SCROLL_SPEED = 4.4;
+  // Feel
+  const GRAVITY = 0.7, JUMP_V = -13.5, DJUMP_V = -11, SPEED = 4.4;
   const TREAT_POINTS = 50;
-  const GROUND_COLOR = "#0f2b45";
-  const ICE_COLOR = "#6ed4ff";
+  const GROUND_COLOR = "#0f2b45", ICE_COLOR = "#6ed4ff";
+  const GAP_CHANCE = 0.25;      // 25% of obstacles are "gap" pairs
+  const GAP_SIZE = [100, 130];  // opening size
   const MAX_LEAVES = 40;
-  const SPAWN_BLOCK_EVERY = [900, 1500];
-  const SPAWN_TREAT_EVERY = [1200, 2200];
-  const SPAWN_DOOR_EVERY  = [8000, 12000];
-  const GAP_CHANCE = 0.35;            // 35% of obstacles are vertical-gap pairs
-  const GAP_SIZE = [90, 120];         // vertical gap opening in px
 
-  /* ===== Canvas + helpers (16:9 letterbox) ===== */
+  // Canvas and scaling (16:9 with letterboxing)
   const BASE_W = 800, BASE_H = 450, RATIO = BASE_W/BASE_H;
-  const canvas = document.getElementById("game");
-  const ctx = canvas.getContext("2d");
-  const jumpBtn = document.getElementById("jumpBtn");
-  const nameOverlay = document.getElementById("nameOverlay");
-  const startOverlay = document.getElementById("startOverlay");
-  const overOverlay = document.getElementById("overOverlay");
-  const finalScoreEl = document.getElementById("finalScore");
-  const topList = document.getElementById("topList");
-  const overTitle = document.getElementById("overTitle");
-  const doorLink = document.getElementById("doorLink");
-  const againBtn = document.getElementById("againBtn");
-  const saveNameBtn = document.getElementById("saveNameBtn");
-  const startBtn = document.getElementById("startBtn");
-  const nameInput = document.getElementById("nameInput");
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const jumpBtn = document.getElementById('jumpBtn');
+  const nameOverlay = document.getElementById('nameOverlay');
+  const startOverlay = document.getElementById('startOverlay');
+  const rotateOverlay = document.getElementById('rotateOverlay');
+  const overOverlay = document.getElementById('overOverlay');
+  const finalScoreEl = document.getElementById('finalScore');
+  const topList = document.getElementById('topList');
+  const overTitle = document.getElementById('overTitle');
+  const doorLink = document.getElementById('doorLink');
+  const againBtn = document.getElementById('againBtn');
+  const saveNameBtn = document.getElementById('saveNameBtn');
+  const startBtn = document.getElementById('startBtn');
+  const nameInput = document.getElementById('nameInput');
+  const continuePortrait = document.getElementById('continuePortrait');
 
-  let W = BASE_W, H = BASE_H;
+  let W = BASE_W, H = BASE_H, FLOOR = 380;
   function fitCanvas(){
     const vw = Math.max(320, window.innerWidth);
     const vh = Math.max(320, window.innerHeight);
     let cssW = vw, cssH = vw / RATIO;
     if (cssH > vh){ cssH = vh; cssW = vh * RATIO; }
-    canvas.style.width = cssW + "px";
-    canvas.style.height = cssH + "px";
+    canvas.style.width = cssW + 'px';
+    canvas.style.height = cssH + 'px';
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width  = Math.floor(cssW * dpr);
+    canvas.width = Math.floor(cssW * dpr);
     canvas.height = Math.floor(cssH * dpr);
     ctx.setTransform(dpr,0,0,dpr,0,0);
     W = cssW; H = cssH;
-    FLOOR = Math.round(H * 0.84);     // ground at ~84% of canvas height
+    FLOOR = Math.round(H * 0.86); // slightly lower ground on big screens
   }
-  fitCanvas();
-  addEventListener("resize", fitCanvas);
+  function checkRotateHint(){
+    const portrait = window.innerHeight > window.innerWidth && window.innerWidth < 800;
+    if (portrait && !allowPortrait) showOverlay(rotateOverlay, true);
+    else showOverlay(rotateOverlay, false);
+  }
+  let allowPortrait = false;
+  continuePortrait.addEventListener('click', ()=>{ allowPortrait = true; showOverlay(rotateOverlay,false); });
 
-  function rand(min,max){ return Math.random()*(max-min)+min; }
+  fitCanvas(); checkRotateHint();
+  addEventListener('resize', ()=>{ fitCanvas(); checkRotateHint(); });
+
+  // Helpers
+  function rand(a,b){ return Math.random()*(b-a)+a; }
   function chance(p){ return Math.random()<p; }
   function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
 
-  /* ===== Assets ===== */
+  // Assets
   const huskyImg = new Image();
-  huskyImg.src = "assets/husky.png";
-  huskyImg.crossOrigin = "anonymous";
+  huskyImg.src = 'assets/husky.png'; huskyImg.crossOrigin = 'anonymous';
 
-  /* ===== Simple sounds ===== */
+  // Audio
   const audio = { ctx:null, enabled:true };
-  function initAudio(){ if(audio.ctx) return; const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return; audio.ctx=new AC(); }
-  function tone(f, dur, type='sine', vol=0.08){
+  function initAudio(){ if(audio.ctx) return; const AC=window.AudioContext||window.webkitAudioContext; if(AC) audio.ctx=new AC(); }
+  function beep(f, dur, type='sine', vol=0.08){
     if(!audio.ctx || !audio.enabled) return;
-    const ctxA=audio.ctx, o=ctxA.createOscillator(), g=ctxA.createGain();
-    o.type=type; o.frequency.value=f; o.connect(g); g.connect(ctxA.destination);
-    const now=ctxA.currentTime; g.gain.value=0; o.start(now);
-    g.gain.linearRampToValueAtTime(vol, now+0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, now+dur);
-    o.stop(now+dur+0.02);
+    const c=audio.ctx, o=c.createOscillator(), g=c.createGain();
+    o.type=type; o.frequency.value=f; o.connect(g); g.connect(c.destination);
+    const t=c.currentTime; g.gain.value=0; o.start(t);
+    g.gain.linearRampToValueAtTime(vol, t+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+    o.stop(t+dur+0.02);
   }
-  function sfx(name){
-    switch(name){
-      case 'jump':  tone(620,0.12,'square',0.08); break;
-      case 'jump2': tone(740,0.12,'square',0.07); break;
-      case 'treat': tone(900,0.08,'triangle',0.07); tone(1200,0.10,'triangle',0.05); break;
-      case 'hit':   tone(180,0.20,'sawtooth',0.12); break;
-      case 'door':  tone(520,0.14,'square',0.08); tone(650,0.16,'square',0.06); break;
-    }
-  }
-  addEventListener("pointerdown", ()=>{ initAudio(); }, { once:true });
-  addEventListener("keydown", ()=>{ initAudio(); }, { once:true });
+  function sfx(k){ if(k==='jump')beep(620,.12,'square',.08);
+                   else if(k==='jump2')beep(740,.12,'square',.07);
+                   else if(k==='treat'){beep(900,.08,'triangle',.07);beep(1200,.1,'triangle',.05);}
+                   else if(k==='hit')beep(180,.20,'sawtooth',.12);
+                   else if(k==='door'){beep(520,.14,'square',.08);beep(650,.16,'square',.06);} }
+  addEventListener('pointerdown', ()=>{ initAudio(); }, { once:true });
+  addEventListener('keydown', ()=>{ initAudio(); }, { once:true });
 
-  /* ===== Game state ===== */
-  let started = false;   // only true after Start
-  let running = false;   // true during an active run
-  let player, score, nextBlockAt, nextTreatAt, nextDoorAt, doorIndex, canDouble;
-  let objects = [];      // obstacles/doors/treats
-  let leaves  = [];      // ambient
-  let lastTs=0;
+  // Game state
+  const PLAYER_W = 56, PLAYER_H = 48;
+  let started=false, running=false, player, score, nextBlockAt, nextTreatAt, nextDoorAt, doorIndex, canDouble;
+  let objects=[], leaves=[], lastTs=0;
 
   function resetGame(){
-    score = 0;
-    running = true;
-    doorIndex = 0;
-    canDouble = false;
-    player = { x:120, y:FLOOR-PLAYER_H, w:PLAYER_W, h:PLAYER_H, vy:0, onGround:true, facing:1 };
-    objects = [];
-    // keep some leaves already on screen so background isn't empty
-    leaves = [];
-    for (let i=0;i<Math.min(10, MAX_LEAVES); i++){
-      leaves.push({ x: rand(0,W), y: rand(0,H), vy: rand(0.6,1.4), amp: rand(8,18), phase: rand(0,Math.PI*2), size: rand(6,12), hue: Math.floor(rand(20,40))*10 });
-    }
-    const now = performance.now();
-    nextBlockAt = now + rand(...SPAWN_BLOCK_EVERY);
-    nextTreatAt = now + rand(...SPAWN_TREAT_EVERY);
-    nextDoorAt  = now + rand(...SPAWN_DOOR_EVERY);
+    score=0; running=true; doorIndex=0; canDouble=false;
+    player={ x:120, y:FLOOR-PLAYER_H, w:PLAYER_W, h:PLAYER_H, vy:0, onGround:true, facing:1 };
+    objects=[];
+    leaves=[]; for(let i=0;i<Math.min(10,MAX_LEAVES);i++){ leaves.push({x:rand(0,W),y:rand(0,H),vy:rand(0.6,1.4),amp:rand(8,18),phase:rand(0,Math.PI*2),size:rand(6,12),hue:Math.floor(rand(20,40))*10});}
+    const now=performance.now();
+    nextBlockAt=now+rand(900,1500);
+    nextTreatAt=now+rand(1200,2200);
+    nextDoorAt =now+rand(8000,12000);
   }
 
   function jump(){
-    if (!running || !started) return;
-    if (player.onGround){
-      player.vy = JUMP_VELOCITY;
-      player.onGround = false;
-      canDouble = true;
-      sfx('jump');
-    } else if (canDouble){
-      player.vy = DOUBLE_JUMP_VELOCITY;
-      canDouble = false;
-      sfx('jump2');
-    }
+    if(!running || !started) return;
+    if(player.onGround){ player.vy=JUMP_V; player.onGround=false; canDouble=true; sfx('jump'); }
+    else if(canDouble){ player.vy=DJUMP_V; canDouble=false; sfx('jump2'); }
   }
 
-  /* ===== Spawners ===== */
-  function spawnBlock(){
-    const h = rand(38, 94);
-    const w = rand(30, 48);
-    const yTop = FLOOR - h;                           // sits on ground
-    objects.push({ type:"block", x: W + 40, y: yTop, w, h, color:"#d9534f" });
+  // Spawners
+  function spawnGroundBlock(){
+    const h=rand(38,94), w=rand(30,48);
+    objects.push({ type:'block', x:W+40, y:FLOOR-h, w, h, color:'#d9534f' });
   }
   function spawnGapPair(){
-    const gap = rand(...GAP_SIZE);
-    const maxBottom = Math.max(40, FLOOR - gap - 120); // keep some headroom
-    const bottomH = rand(40, maxBottom);
-    const topH = Math.max(30, FLOOR - gap - bottomH);
-    const w = rand(32, 44);
-    // bottom block (from ground up)
-    objects.push({ type:"block", x: W + 40, y: FLOOR - bottomH, w, h: bottomH, color:"#d9534f" });
-    // top block (from top down)
-    objects.push({ type:"block", x: W + 40, y: 0, w, h: topH, color:"#d9534f" });
-    // optional treat in the gap sometimes
-    if (chance(0.4)){
-      const gy = topH + (gap/2) - 9;
-      objects.push({ type:"treat", x: W + 40 + w + 30, y: gy, w: 18, h: 18, color:"#ffd166" });
-    }
+    // Keep the opening near the ground (reachable with single/double jump)
+    const open=rand(GAP_SIZE[0], GAP_SIZE[1]);               // gap height
+    const center=FLOOR - rand(100, 160);                     // center above ground
+    const bottomH = Math.max(30, FLOOR - (center + open/2)); // bottom block height
+    const topH    = Math.max(30, center - open/2);           // top block height
+    const w=rand(32,44);
+    objects.push({ type:'block', x:W+40, y:FLOOR-bottomH, w, h:bottomH, color:'#d9534f' });
+    objects.push({ type:'block', x:W+40, y:0,              w, h:topH,    color:'#d9534f' });
+    if(chance(0.4)){ const gy=center - 9; objects.push({ type:'treat', x:W+40+w+30, y:gy, w:18, h:18, color:'#ffd166' }); }
   }
-  function spawnObstacle(){
-    if (chance(GAP_CHANCE)) spawnGapPair();
-    else spawnBlock();
-  }
+  function spawnObstacle(){ if(chance(GAP_CHANCE)) spawnGapPair(); else spawnGroundBlock(); }
+
   function spawnTreat(){
-    const y = rand(150, FLOOR - 80);
-    objects.push({ type:"treat", x: W + 40, y, w: 18, h: 18, color:"#ffd166" });
+    const y=rand(150, FLOOR-80);
+    objects.push({ type:'treat', x:W+40, y, w:18, h:18, color:'#ffd166' });
   }
   function spawnDoor(){
-    const d = DOORS[doorIndex % DOORS.length]; doorIndex++;
-    const doorW = 34, doorH = 58;
-    const platformY = rand(FLOOR - 110, FLOOR - 60);
-    // door itself
-    objects.push({ type:"door", label:d.label, url:d.url, color:d.color,
-                   x: W + 60, y: platformY - doorH, w: doorW, h: doorH });
-    // narrow pedestal beneath door (so you can pass under/over more easily)
+    const d=DOORS[doorIndex % DOORS.length]; doorIndex++;
+    const doorW=34, doorH=58;
+    const rise = rand(65, 120);                              // pedestal rise above ground
+    const platformY = FLOOR - rise;
+    // door
+    objects.push({ type:'door', label:d.label, url:d.url, color:d.color,
+                   x: W+60, y: platformY - doorH, w: doorW, h: doorH });
+    // narrow pedestal (easy to pass)
     const pedW = 56, pedH = 12;
-    objects.push({ type:"platform", x: W + 60 - pedW/2, y: platformY, w: pedW, h: pedH, color: ICE_COLOR });
+    objects.push({ type:'platform', x: W+60 - pedW/2, y: platformY, w: pedW, h: pedH, color: ICE_COLOR });
   }
   function spawnLeaf(){
-    if (!leaves) leaves = [];
-    if (leaves.length >= MAX_LEAVES) return;
-    leaves.push({ x: rand(0,W), y: -20, vy: rand(0.6,1.4), amp: rand(8,18), phase: rand(0,Math.PI*2), size: rand(6,12), hue: Math.floor(rand(20,40))*10 });
+    if(leaves.length>=MAX_LEAVES) return;
+    leaves.push({ x:rand(0,W), y:-20, vy:rand(0.6,1.4), amp:rand(8,18), phase:rand(0,Math.PI*2), size:rand(6,12), hue:Math.floor(rand(20,40))*10 });
   }
 
-  function aabb(a,b){ return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
-  // Require player's center to be inside the inner 60% of the door horizontally, plus normal overlap
-  function doorEntered(p, d){
-    const cx = p.x + p.w * 0.5;
-    const innerL = d.x + d.w * 0.2, innerR = d.x + d.w * 0.8;
-    const vertical = p.y + p.h > d.y + 6 && p.y < d.y + d.h - 6;
-    return cx > innerL && cx < innerR && vertical && aabb(p,d);
+  function aabb(a,b){ return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y; }
+  // Door entry requires center inside inner 60% horizontally + normal overlap
+  function doorEntered(p,d){
+    const cx=p.x+p.w*0.5, innerL=d.x+d.w*0.2, innerR=d.x+d.w*0.8;
+    const vertical = p.y+p.h > d.y+6 && p.y < d.y+d.h-6;
+    return cx>innerL && cx<innerR && vertical && aabb(p,d);
   }
 
-  /* ===== Update / Draw ===== */
+  // Update/draw
   function update(dt){
-    // Ambient leaves even if not started
-    if (chance(0.2)) spawnLeaf();
-    for (const l of leaves){ l.phase += 0.03; l.x += Math.sin(l.phase)*0.8; l.y += l.vy; }
-    leaves = leaves.filter(l => l.y < H + 30);
+    if(Math.random()<0.2) spawnLeaf();
+    for(const l of leaves){ l.phase+=0.03; l.x+=Math.sin(l.phase)*0.8; l.y+=l.vy; }
+    leaves = leaves.filter(l=>l.y<H+30);
 
-    if (!running || !started) return;
+    if(!running || !started) return;
 
-    // Score & physics
-    score += SCROLL_SPEED * dt * 0.1;
-    player.vy += GRAVITY;
-    player.y  += player.vy;
-    if (player.y >= FLOOR - PLAYER_H){
-      player.y = FLOOR - PLAYER_H; player.vy = 0; player.onGround = true;
-    }
+    score += SPEED * dt * 0.1;
+    player.vy += GRAVITY; player.y += player.vy;
+    if(player.y >= FLOOR-PLAYER_H){ player.y=FLOOR-PLAYER_H; player.vy=0; player.onGround=true; }
 
-    // Spawns
-    const now = performance.now();
-    if (now >= nextBlockAt){ spawnObstacle(); nextBlockAt = now + rand(...SPAWN_BLOCK_EVERY); }
-    if (now >= nextTreatAt){ spawnTreat();   nextTreatAt = now + rand(...SPAWN_TREAT_EVERY); }
-    if (now >= nextDoorAt){  spawnDoor();    nextDoorAt  = now + rand(...SPAWN_DOOR_EVERY); }
+    const now=performance.now();
+    if(now>=nextBlockAt){ spawnObstacle(); nextBlockAt=now+rand(900,1500); }
+    if(now>=nextTreatAt){ spawnTreat();   nextTreatAt=now+rand(1200,2200); }
+    if(now>=nextDoorAt){  spawnDoor();    nextDoorAt =now+rand(8000,12000); }
 
-    // Move & cleanup
-    for (const o of objects){ o.x -= SCROLL_SPEED; }
-    objects = objects.filter(o => o.x + o.w > -60);
+    for(const o of objects) o.x -= SPEED;
+    objects = objects.filter(o=>o.x+o.w>-60);
 
-    // Collisions
-    for (let i=0;i<objects.length;i++){
-      const o = objects[i];
-      if (o.type === "block" && aabb(player,o)){ sfx('hit'); endRun("You hit a block!"); return; }
-      if (o.type === "door"  && doorEntered(player,o)){ sfx('door'); endRun(`You reached ${o.label}`, o); return; }
-      if (o.type === "treat" && aabb(player,o)){
-        score += TREAT_POINTS; sfx('treat'); objects.splice(i,1); i--;
-      }
+    for(let i=0;i<objects.length;i++){
+      const o=objects[i];
+      if(o.type==='block' && aabb(player,o)){ sfx('hit'); endRun('You hit a block!'); return; }
+      if(o.type==='door'  && doorEntered(player,o)){ sfx('door'); endRun(`You reached ${o.label}`, o); return; }
+      if(o.type==='treat' && aabb(player,o)){ score+=TREAT_POINTS; sfx('treat'); objects.splice(i,1); i--; }
     }
   }
 
   function draw(){
-    // Winter gradient
-    const g = ctx.createLinearGradient(0,0,0,H);
-    g.addColorStop(0,"#0a2239"); g.addColorStop(1,"#163a59");
-    ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+    const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#0a2239'); g.addColorStop(1,'#163a59');
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle=GROUND_COLOR; ctx.fillRect(0, FLOOR+8, W, H-(FLOOR+8));
+    ctx.fillStyle=ICE_COLOR;    ctx.fillRect(0, FLOOR-10, W, 6);
 
-    // Ground strip
-    ctx.fillStyle = GROUND_COLOR; ctx.fillRect(0, FLOOR+8, W, H-(FLOOR+8));
-    ctx.fillStyle = ICE_COLOR;    ctx.fillRect(0, FLOOR-10, W, 6);
-
-    // Leaves
-    for (const l of leaves){
+    for(const l of leaves){
       ctx.fillStyle = `hsl(${l.hue} 70% 60%)`;
       ctx.beginPath(); ctx.ellipse(l.x,l.y,l.size*0.7,l.size*0.4,Math.sin(l.phase)*0.5,0,Math.PI*2); ctx.fill();
     }
 
-    // Objects
-    for (const o of objects){
-      if (o.type === "block" || o.type === "platform"){
-        ctx.fillStyle = o.color; roundRect(ctx, o.x, o.y, o.w, o.h, 4, true, false);
-      } else if (o.type === "door"){
-        ctx.fillStyle = o.color; roundRect(ctx, o.x, o.y, o.w, o.h, 6, true, false);
-        ctx.fillStyle = "#173554"; roundRect(ctx, o.x+8, o.y+8, o.w-16, o.h-16, 4, true, false);
-        ctx.fillStyle = "#cfe9ff"; ctx.font = "12px system-ui"; ctx.textAlign="center";
-        ctx.fillText(o.label, o.x + o.w/2, o.y - 8);
-      } else if (o.type === "treat"){
-        ctx.fillStyle = o.color; roundRect(ctx, o.x, o.y, o.w, o.h, 6, true, false);
-        ctx.fillStyle = "#b9923b"; ctx.fillRect(o.x+5, o.y+7, o.w-10, 4);
+    for(const o of objects){
+      if(o.type==='block' || o.type==='platform'){ ctx.fillStyle=o.color; roundRect(ctx,o.x,o.y,o.w,o.h,4,true,false); }
+      else if(o.type==='door'){
+        ctx.fillStyle=o.color; roundRect(ctx,o.x,o.y,o.w,o.h,6,true,false);
+        ctx.fillStyle='#173554'; roundRect(ctx,o.x+8,o.y+8,o.w-16,o.h-16,4,true,false);
+        ctx.fillStyle='#cfe9ff'; ctx.font='12px system-ui'; ctx.textAlign='center';
+        ctx.fillText(o.label, o.x+o.w/2, o.y-8);
+      } else if(o.type==='treat'){
+        ctx.fillStyle=o.color; roundRect(ctx,o.x,o.y,o.w,o.h,6,true,false);
+        ctx.fillStyle='#b9923b'; ctx.fillRect(o.x+5,o.y+7,o.w-10,4);
       }
     }
 
-    // Player (only when started)
-    if (started){
-      if (huskyImg.complete && huskyImg.naturalWidth){
-        ctx.save(); ctx.translate(player.x + player.w/2, player.y + player.h/2); ctx.scale(player.facing,1);
+    if(started){
+      if(huskyImg.complete && huskyImg.naturalWidth){
+        ctx.save(); ctx.translate(player.x+player.w/2, player.y+player.h/2); ctx.scale(player.facing,1);
         ctx.drawImage(huskyImg, -player.w/2, -player.h/2, player.w, player.h); ctx.restore();
       } else {
-        ctx.fillStyle = "#eef7ff"; roundRect(ctx, player.x, player.y, player.w, player.h, 6, true, false);
+        ctx.fillStyle='#eef7ff'; roundRect(ctx,player.x,player.y,player.w,player.h,6,true,false);
       }
     }
 
-    // HUD
-    if (running && started){
-      ctx.fillStyle = "#cfe9ff"; ctx.font = "16px system-ui"; ctx.textAlign="left";
-      ctx.fillText("Score: " + Math.floor(score), 14, 22);
+    if(running && started){
+      ctx.fillStyle='#cfe9ff'; ctx.font='16px system-ui'; ctx.textAlign='left';
+      ctx.fillText('Score: '+Math.floor(score), 14, 22);
     }
   }
 
-  function roundRect(ctx, x, y, w, h, r, fill, stroke){
-    if (w < 2*r) r = w/2; if (h < 2*r) r = h/2;
+  function roundRect(ctx,x,y,w,h,r,fill,stroke){
+    if(w<2*r) r=w/2; if(h<2*r) r=h/2;
     ctx.beginPath();
     ctx.moveTo(x+r,y);
     ctx.arcTo(x+w,y,  x+w,y+h, r);
     ctx.arcTo(x+w,y+h,x,  y+h, r);
     ctx.arcTo(x,  y+h,x,  y,   r);
     ctx.arcTo(x,  y,  x+w,y,   r);
-    if (fill) ctx.fill(); if (stroke) ctx.stroke();
+    if(fill) ctx.fill(); if(stroke) ctx.stroke();
   }
 
-  /* ===== End run + local best ===== */
   function endRun(title, door){
-    running = false;
-    finalScoreEl.textContent = Math.floor(score);
-    overTitle.textContent = title || "Game Over";
-    if (door){ doorLink.style.display=""; doorLink.textContent=`Go to ${door.label}`; doorLink.href=door.url; }
-    else { doorLink.style.display="none"; }
-
-    const you = (localStorage.getItem("hj_name") || "Guest").slice(0,24);
-    const best = Math.max(Math.floor(score), +localStorage.getItem("hj_best")||0);
-    localStorage.setItem("hj_best", best);
-    topList.innerHTML = "";
-    const li = document.createElement("li");
-    const left = document.createElement("span"); left.textContent = `1. ${you}`;
-    const right = document.createElement("strong"); right.textContent = best;
-    li.appendChild(left); li.appendChild(right); topList.appendChild(li);
-
-    showOverlay(overOverlay, true);
+    running=false;
+    finalScoreEl.textContent=Math.floor(score);
+    overTitle.textContent=title||'Game Over';
+    if(door){ doorLink.style.display=''; doorLink.textContent=`Go to ${door.label}`; doorLink.href=door.url; }
+    else doorLink.style.display='none';
+    const you=(localStorage.getItem('hj_name')||'Guest').slice(0,24);
+    const best=Math.max(Math.floor(score), +localStorage.getItem('hj_best')||0);
+    localStorage.setItem('hj_best', best);
+    topList.innerHTML='';
+    const li=document.createElement('li'); const l=document.createElement('span'); l.textContent=`1. ${you}`;
+    const r=document.createElement('strong'); r.textContent=best; li.appendChild(l); li.appendChild(r); topList.appendChild(li);
+    showOverlay(overOverlay,true);
   }
 
-  function showOverlay(el, on){ el.style.display = on ? "flex" : "none"; }
-  function anyOverlayOpen(){
-    return nameOverlay.style.display === "flex" ||
-           startOverlay.style.display === "flex" ||
-           overOverlay.style.display === "flex";
-  }
+  function showOverlay(el,on){ el.style.display=on?'flex':'none'; }
+  function anyOverlayOpen(){ return nameOverlay.style.display==='flex'||startOverlay.style.display==='flex'||overOverlay.style.display==='flex'||rotateOverlay.style.display==='flex'; }
 
-  /* ===== Loop ===== */
   function frame(ts){
-    if (!lastTs) lastTs = ts;
-    const dt = clamp((ts - lastTs) / 16.6667, 0, 2);
-    lastTs = ts;
-    update(dt);
-    draw();
-    requestAnimationFrame(frame);
+    if(!lastTs) lastTs=ts;
+    const dt=clamp((ts-lastTs)/16.6667,0,2); lastTs=ts;
+    update(dt); draw(); requestAnimationFrame(frame);
   }
 
-  /* ===== Input (ignored while overlays open) ===== */
-  addEventListener("keydown", e=>{
-    if (anyOverlayOpen()) return;
-    if (e.code === "Space" || e.code === "ArrowUp"){ e.preventDefault(); jump(); }
-  });
-  addEventListener("pointerdown", e=>{
-    if (e.target.closest(".overlay") || e.target.id === "againBtn") return;
-    if (anyOverlayOpen()) return;
-    jump();
-  });
-  jumpBtn.addEventListener("click", ()=>{ if(!anyOverlayOpen()) jump(); });
+  // Input
+  addEventListener('keydown', e=>{ if(anyOverlayOpen()) return; if(e.code==='Space'||e.code==='ArrowUp'){ e.preventDefault(); jump(); }});
+  addEventListener('pointerdown', e=>{ if(e.target.closest('.overlay')||e.target.id==='againBtn') return; if(anyOverlayOpen()) return; jump(); });
+  jumpBtn.addEventListener('click', ()=>{ if(!anyOverlayOpen()) jump(); });
+  againBtn.addEventListener('click', ()=>{ showOverlay(overOverlay,false); resetGame(); });
 
-  againBtn.addEventListener("click", ()=>{
-    showOverlay(overOverlay,false);
-    resetGame();
-  });
+  // Name + Start flow
+  const saved=localStorage.getItem('hj_name')||''; if(saved) nameInput.value=saved;
+  saveNameBtn.addEventListener('click', ()=>{ const v=(nameInput.value||'').trim(); if(!v) return; localStorage.setItem('hj_name', v.slice(0,24)); showOverlay(nameOverlay,false); showOverlay(startOverlay,true); });
+  nameInput.addEventListener('keydown', e=>{ if(e.key==='Enter') saveNameBtn.click(); });
+  startBtn.addEventListener('click', ()=>{ initAudio(); started=true; showOverlay(startOverlay,false); resetGame(); });
 
-  /* ===== Name + Start flow ===== */
-  const savedName = localStorage.getItem("hj_name") || "";
-  if (savedName) nameInput.value = savedName;
+  if(!localStorage.getItem('hj_name')) showOverlay(nameOverlay,true); else showOverlay(startOverlay,true);
 
-  saveNameBtn.addEventListener("click", ()=>{
-    const v = (nameInput.value||"").trim();
-    if (!v) return;
-    localStorage.setItem("hj_name", v.slice(0,24));
-    showOverlay(nameOverlay, false);
-    showOverlay(startOverlay, true);
-  });
-  nameInput.addEventListener("keydown", (e)=>{
-    if (e.key === "Enter") document.getElementById("saveNameBtn").click();
-  });
-
-  startBtn.addEventListener("click", ()=>{
-    initAudio();
-    started = true;
-    showOverlay(startOverlay, false);
-    resetGame();
-  });
-
-  // Show overlays; do not start the game yet
-  if (!localStorage.getItem("hj_name")) showOverlay(nameOverlay, true);
-  else showOverlay(startOverlay, true);
-
-  // Kick off rendering
   requestAnimationFrame(frame);
-} // end init
+}
 </script>
