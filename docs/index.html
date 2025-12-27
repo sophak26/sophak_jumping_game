@@ -109,7 +109,7 @@ function init(){
   ];
 
   // Feel
-  const GRAVITY = 0.7, JUMP_V = -13.5, DJUMP_V = -11, SPEED = 4.4;
+  const GRAVITY = 0.7, JUMP_V = -18.0, DJUMP_V = -11, SPEED = 4.4;
   const TREAT_POINTS = 50;
   const GROUND_COLOR = "#0f2b45", ICE_COLOR = "#6ed4ff";
   const GAP_CHANCE = 0.25;      // 25% of obstacles are "gap" pairs
@@ -117,7 +117,7 @@ function init(){
   const MAX_LEAVES = 40;
 
   // Canvas and scaling (16:9 with letterboxing)
-  const BASE_W = 640, BASE_H = 360, RATIO = BASE_W/BASE_H;
+  const BASE_W = 800, BASE_H = 450, RATIO = BASE_W/BASE_H;
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const jumpBtn = document.getElementById('jumpBtn');
