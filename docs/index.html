@@ -4,23 +4,23 @@
 <title>Husky Jump</title>
 <style>
   :root{--bg:#0b1b2a;--fg:#e9f2ff;--panel:#11273d;--accent:#5ec3ff}
-  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Helvetica,Arial,sans-serif}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Helvetica,Arial,sans-serif;font-size:18px}
   #wrap{position:relative;min-height:100vh;display:flex;flex-direction:column}
   #gamewrap{flex:1;display:flex;align-items:center;justify-content:center}
   canvas{display:block;touch-action:manipulation;background:transparent}
   .overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(5,15,25,.65);z-index:10}
-  .box{background:var(--panel);border:1px solid #284963;border-radius:14px;max-width:480px;width:90%;padding:18px 16px;box-shadow:0 12px 40px rgba(0,0,0,.4)}
-  .box h2{margin:0 0 8px;font-size:20px}
-  .box p{margin:8px 0 0;line-height:1.4}
+  .box{background:var(--panel);border:1px solid #284963;border-radius:14px;max-width:520px;width:90%;padding:22px 18px;box-shadow:0 12px 40px rgba(0,0,0,.4)}
+  .box h2{margin:0 0 8px;font-size:24px}
+  .box p{margin:8px 0 0;line-height:1.5}
   .row{display:flex;gap:8px;margin-top:12px}
-  input[type=text]{flex:1;padding:10px;border-radius:10px;border:1px solid #466a85;background:#0e2236;color:var(--fg)}
-  button,a.btn{appearance:none;border:0;border-radius:10px;background:#1a3d5e;color:var(--fg);padding:10px 14px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+  input[type=text]{flex:1;padding:12px;border-radius:10px;border:1px solid #466a85;background:#0e2236;color:var(--fg)}
+  button,a.btn{appearance:none;border:0;border-radius:10px;background:#1a3d5e;color:var(--fg);padding:12px 16px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
   button:hover,a.btn:hover{background:#235078}
   .btn.secondary{background:#0e2236;border:1px solid #3a5f7c}
-  ul.leaders{list-style:none;padding:0;margin:8px 0 0}
-  ul.leaders li{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #24465f}
-  #jumpBtn{position:fixed;right:14px;bottom:14px;z-index:5;padding:14px 18px;border-radius:14px;background:#2b5a84;color:var(--fg);border:1px solid #3c729f}
-  footer{padding:10px 12px;opacity:.85;font-size:12px}
+  ul.leaders{list-style:none;padding:0;margin:10px 0 0}
+  ul.leaders li{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed #24465f}
+  #jumpBtn{position:fixed;right:14px;bottom:14px;z-index:5;padding:16px 20px;border-radius:14px;background:#2b5a84;color:var(--fg);border:1px solid #3c729f}
+  footer{padding:12px 14px;opacity:.85;font-size:13px}
   footer a{color:#9fd2ff}
   ul.inst{margin:8px 0 12px 20px;padding:0}
   ul.inst li{margin:6px 0}
@@ -114,9 +114,11 @@ function init(){
   const GAP_SIZE = [200, 400];  // opening size
   const MAX_LEAVES = 40;
 
-  // Extra: acceleration (px/s^2) and max speed cap
-  const ACCEL = 5;             // increase in px per second, per second
-  const MAX_SPEED = 20;         // px per frame cap (~720 px/s)
+  // Extra: acceleration and cap
+  const ACCEL = 5;         // px/sec^2
+  const MAX_SPEED = 20;    // px/frame cap
+  // Distance units for the "Next" HUD: px -> meters
+  const DIST_SCALE = 6;    // 6 px ≈ 1 m (tweak to taste)
 
   // Canvas and scaling (16:9 with letterboxing)
   const BASE_W = 800, BASE_H = 450, RATIO = BASE_W/BASE_H;
@@ -197,7 +199,7 @@ function init(){
   let started=false, running=false, player, score, nextBlockAt, nextTreatAt, nextDoorAt, doorIndex, canDouble;
   let objects=[], leaves=[], lastTs=0;
 
-  // Speed uses px/second internally; we convert your SPEED (px/frame) to px/sec.
+  // Speed uses px/second internally; convert your SPEED (px/frame) to px/sec.
   let speedPS = SPEED * 60;                // start speed (px/sec)
   const MAX_SPEED_PS = MAX_SPEED * 60;     // cap in px/sec
 
@@ -225,8 +227,8 @@ function init(){
     objects.push({ type:'block', x:W+40, y:FLOOR-h, w, h, color:'#d9534f' });
   }
   function spawnGapPair(){
-    const open = rand(GAP_SIZE[0], GAP_SIZE[1]);         // big opening (200–400)
-    let center = FLOOR - rand(150, 240);                 // center above ground
+    const open = rand(GAP_SIZE[0], GAP_SIZE[1]);
+    let center = FLOOR - rand(150, 240);
     center = clamp(center, open/2 + 30, FLOOR - open/2 - 30);
     const bottomH = Math.max(30, FLOOR - (center + open/2));
     const topH    = Math.max(30, center - open/2);
@@ -242,13 +244,11 @@ function init(){
     objects.push({ type:'treat', x:W+40, y, w:18, h:18, color:'#ffd166' });
   }
   function spawnDoor(){
-    // Higher doors, no pedestal
     const d=DOORS[doorIndex % DOORS.length]; doorIndex++;
     const doorW=34, doorH=58;
-    const rise = rand(160, 260);                          // how high above ground
+    const rise = rand(160, 260);                    // higher doors, no base
     const y = FLOOR - rise - doorH;
-    objects.push({ type:'door', label:d.label, url:d.url, color:d.color,
-                   x: W+60, y, w: doorW, h: doorH });
+    objects.push({ type:'door', label:d.label, url:d.url, color:d.color, x: W+60, y, w: doorW, h: doorH });
   }
   function spawnLeaf(){
     if(leaves.length>=MAX_LEAVES) return;
@@ -257,15 +257,22 @@ function init(){
 
   function aabb(a,b){ return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y; }
   function doorEntered(p,d){
-    // require player's center to be inside the middle 60% horizontally + overlap
     const cx=p.x+p.w*0.5, innerL=d.x+d.w*0.2, innerR=d.x+d.w*0.8;
     const vertical = p.y+p.h > d.y+6 && p.y < d.y+d.h-6;
     return cx>innerL && cx<innerR && vertical && aabb(p,d);
   }
+  function getNextDoorAhead(){
+    let best=null;
+    for(const o of objects){
+      if(o.type==='door' && o.x+o.w > player.x+player.w){
+        if(!best || o.x < best.x) best=o;
+      }
+    }
+    return best;
+  }
 
   // Update/draw
   function update(dt){
-    // dt is “frames at 60fps”; convert to seconds
     const sec = dt / 60;
 
     if(Math.random()<0.2) spawnLeaf();
@@ -274,23 +281,23 @@ function init(){
 
     if(!running || !started) return;
 
-    // accelerate speed over time (px/sec^2)
+    // accelerate
     speedPS = Math.min(MAX_SPEED_PS, speedPS + ACCEL * sec);
 
-    // distance-based score scales with current speed
+    // score scales with speed
     score += speedPS * sec * 0.1;
 
     // physics
     player.vy += GRAVITY; player.y += player.vy;
     if(player.y >= FLOOR-PLAYER_H){ player.y=FLOOR-PLAYER_H; player.vy=0; player.onGround=true; }
 
-    // spawns (time-based, not speed-based)
+    // spawns
     const now=performance.now();
     if(now>=nextBlockAt){ spawnObstacle(); nextBlockAt=now+rand(900,1500); }
     if(now>=nextTreatAt){ spawnTreat();   nextTreatAt=now+rand(1200,2200); }
     if(now>=nextDoorAt){  spawnDoor();    nextDoorAt =now+rand(8000,12000); }
 
-    // move with current speed (px/sec * sec)
+    // move
     for(const o of objects) o.x -= speedPS * sec;
     objects = objects.filter(o=>o.x+o.w>-60);
 
@@ -303,29 +310,34 @@ function init(){
   }
 
   function draw(){
+    // background
     const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#0a2239'); g.addColorStop(1,'#163a59');
     ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+    // ground
     ctx.fillStyle=GROUND_COLOR; ctx.fillRect(0, Math.round(FLOOR)+8, W, H-(Math.round(FLOOR)+8));
     ctx.fillStyle=ICE_COLOR;    ctx.fillRect(0, FLOOR-10, W, 6);
 
+    // leaves
     for(const l of leaves){
       ctx.fillStyle = `hsl(${l.hue} 70% 60%)`;
       ctx.beginPath(); ctx.ellipse(l.x,l.y,l.size*0.7,l.size*0.4,Math.sin(l.phase)*0.5,0,Math.PI*2); ctx.fill();
     }
 
+    // objects
     for(const o of objects){
       if(o.type==='block'){ ctx.fillStyle=o.color; roundRect(ctx,o.x,o.y,o.w,o.h,4,true,false); }
       else if(o.type==='door'){
         ctx.fillStyle=o.color; roundRect(ctx,o.x,o.y,o.w,o.h,6,true,false);
         ctx.fillStyle='#173554'; roundRect(ctx,o.x+8,o.y+8,o.w-16,o.h-16,4,true,false);
-        ctx.fillStyle='#cfe9ff'; ctx.font='12px system-ui'; ctx.textAlign='center';
-        ctx.fillText(o.label, o.x+o.w/2, o.y-8);
+        ctx.fillStyle='#cfe9ff'; ctx.font='16px system-ui'; ctx.textAlign='center';
+        ctx.fillText(o.label, o.x+o.w/2, o.y-10);
       } else if(o.type==='treat'){
         ctx.fillStyle=o.color; roundRect(ctx,o.x,o.y,o.w,o.h,6,true,false);
         ctx.fillStyle='#b9923b'; ctx.fillRect(o.x+5,o.y+7,o.w-10,4);
       }
     }
 
+    // player
     if(started){
       if(huskyImg.complete && huskyImg.naturalWidth){
         ctx.save(); ctx.translate(player.x+player.w/2, player.y+player.h/2); ctx.scale(player.facing,1);
@@ -335,9 +347,27 @@ function init(){
       }
     }
 
+    // HUD (bigger fonts)
     if(running && started){
-      ctx.fillStyle='#cfe9ff'; ctx.font='16px system-ui'; ctx.textAlign='left';
-      ctx.fillText('Score: '+Math.floor(score), 14, 22);
+      ctx.fillStyle='#cfe9ff'; ctx.textBaseline='top';
+
+      // Score (top-left)
+      ctx.font = '24px system-ui';
+      ctx.textAlign='left';
+      ctx.fillText('Score: '+Math.floor(score), 14, 14);
+
+      // Next door (top-right)
+      const next = getNextDoorAhead();
+      ctx.textAlign='right';
+      if(next){
+        const distPx = Math.max(0, (next.x - (player.x + player.w)));
+        const meters = Math.max(0, Math.round(distPx / DIST_SCALE));
+        const secs = Math.max(0, distPx / Math.max(1, speedPS));
+        const msg = `Next: ${next.label} ~ ${meters} m (${secs.toFixed(1)} s)`;
+        ctx.fillText(msg, W - 14, 14);
+      } else {
+        ctx.fillText('Next: spawning…', W - 14, 14);
+      }
     }
   }
 
